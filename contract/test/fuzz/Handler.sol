@@ -58,11 +58,11 @@ contract Handler is Test {
     // 模糊测试：借款操作
     function borrow(uint256 amount, address user) public {
         if (!isActiveUser[user]) return;
-        
+
         // 获取用户借款限额
         uint256 borrowLimit = pool.getUserBorrowLimit(user, address(usdc));
         if (borrowLimit == 0) return;
-        
+
         // 约束借款金额
         amount = bound(amount, 0, borrowLimit);
         if (amount == 0) return;
@@ -79,11 +79,11 @@ contract Handler is Test {
     // 模糊测试：还款操作
     function repay(uint256 amount, address user) public {
         if (!isActiveUser[user]) return;
-        
+
         // 获取用户当前借款金额
         uint256 borrowAmount = pool.getUserBorrowAmount(user, address(usdc));
         if (borrowAmount == 0) return;
-        
+
         // 约束还款金额
         amount = bound(amount, 0, borrowAmount);
         if (amount == 0) return;
@@ -104,11 +104,11 @@ contract Handler is Test {
     // 模糊测试：提款操作
     function withdraw(uint256 amount, address user) public {
         if (!isActiveUser[user]) return;
-        
+
         // 获取用户存款信息
-        (uint128 depositAmount, , , ) = pool.userInfo(address(weth), user);
+        (uint128 depositAmount, , , , , ) = pool.userInfo(address(weth), user);
         if (depositAmount == 0) return;
-        
+
         // 约束提款金额
         amount = bound(amount, 0, uint256(depositAmount));
         if (amount == 0) return;
@@ -122,47 +122,6 @@ contract Handler is Test {
         vm.stopPrank();
     }
 
-    // 模糊测试：清算操作
-    function liquidate(uint256 amount, address user, address liquidator) public {
-        if (!isActiveUser[user] || user == liquidator) return;
-        
-        // 检查用户是否可被清算
-        if (!isUserLiquidatable(user)) return;
-        
-        // 获取用户借款金额
-        uint256 borrowAmount = pool.getUserBorrowAmount(user, address(usdc));
-        if (borrowAmount == 0) return;
-        
-        // 约束清算金额
-        amount = bound(amount, 0, borrowAmount);
-        if (amount == 0) return;
-
-        // 准备代币
-        usdc.mint(amount);
-        vm.startPrank(liquidator);
-        usdc.approve(address(pool), amount);
-
-        try pool.liquidate(address(usdc), user, amount) {
-            liquidateCalls++;
-        } catch {
-            // 清算失败时静默处理
-        }
-        vm.stopPrank();
-    }
-
-    // 辅助函数：检查用户是否可被清算
-    function isUserLiquidatable(address user) public view returns (bool) {
-        uint256 healthFactor = pool.getHealthFactor(user);
-        return healthFactor > 0 && healthFactor < 1e18;
-    }
-
-    // 辅助函数：计算用户总借款价值
-    function calculateTotalBorrowValue(address user) public view returns (uint256) {
-        uint256 wethBorrowValue = pool.getUserBorrowUsdValue(user, address(weth));
-        uint256 usdcBorrowValue = pool.getUserBorrowUsdValue(user, address(usdc));
-        return wethBorrowValue + usdcBorrowValue;
-    }
-
     // 获取活跃用户列表
     function getActiveUsers() external view returns (address[] memory) {
         return activeUsers;
@@ -170,4 +129,4 @@ contract Handler is Test {
 
     // 接收函数，允许合约接收ETH
     receive() external payable {}
-} 
+}

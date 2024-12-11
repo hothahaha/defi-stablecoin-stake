@@ -5,13 +5,12 @@
     "@mantleio/sdk": "^1.0.4",
     "dotenv": "^16.4.5"
   },
+  "devDependencies": {
+    "prettier": "^3.3.3",
+    "prettier-plugin-solidity": "^1.4.1"
+  },
   "scripts": {
-    "deploy:l2token:local": "forge script script/DeployL2CustomERC20.s.sol --rpc-url http://localhost:8545 --broadcast",
-    "deploy:l2token:testnet": "forge script script/DeployL2CustomERC20.s.sol --rpc-url https://rpc.testnet.mantle.xyz --broadcast",
-    "deploy:l2token:mainnet": "forge script script/DeployL2CustomERC20.s.sol --rpc-url https://rpc.mantle.xyz --broadcast",
-    "transfer": "node scripts/transfer.js",
     "deploy:local": "forge script script/Deploy.s.sol --rpc-url http://localhost:8545 --broadcast",
-    "deploy:sepolia": "forge script script/Deploy.s.sol --rpc-url $SEPOLIA_RPC_URL --broadcast --verify",
     "deploy:mantle-testnet": "forge script script/Deploy.s.sol --rpc-url https://rpc.testnet.mantle.xyz --broadcast --verify"
   }
 }

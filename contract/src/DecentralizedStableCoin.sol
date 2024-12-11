@@ -7,12 +7,12 @@ import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
- * @title MantleStableCoin
+ * @title DecentralizedStableCoin
  * @author Galahad
  * @notice 这是一个与美元挂钩的去中心化稳定币
  * @dev 这个合约是ERC20实现，由MSCEngine控制铸造和销毁
  */
-contract MantleStableCoin is ERC20, Pausable, Ownable, ReentrancyGuard {
+contract DecentralizedStableCoin is ERC20, Pausable, Ownable, ReentrancyGuard {
     // Type declarations
     struct DailyMint {
         uint128 amount; // 每日铸币上限
@@ -42,16 +42,16 @@ contract MantleStableCoin is ERC20, Pausable, Ownable, ReentrancyGuard {
     event MinterStatusChanged(address indexed minter, bool indexed status);
 
     // Errors
-    error MantleStableCoin__NotMinter();
-    error MantleStableCoin__Blacklisted();
-    error MantleStableCoin__DailyLimitExceeded();
-    error MantleStableCoin__InvalidAmount();
-    error MantleStableCoin__AlreadyMinter();
-    error MantleStableCoin__AlreadyBlacklisted();
-    error MantleStableCoin__NotBlacklisted();
-    error MantleStableCoin__ExceedsDailyLimit(uint256 requested, uint256 remaining);
-    error MantleStableCoin__InvalidMinter(address minter);
-    error MantleStableCoin__InvalidDailyLimit(uint256 limit);
+    error DecentralizedStableCoin__NotMinter();
+    error DecentralizedStableCoin__Blacklisted();
+    error DecentralizedStableCoin__DailyLimitExceeded();
+    error DecentralizedStableCoin__InvalidAmount();
+    error DecentralizedStableCoin__AlreadyMinter();
+    error DecentralizedStableCoin__AlreadyBlacklisted();
+    error DecentralizedStableCoin__NotBlacklisted();
+    error DecentralizedStableCoin__ExceedsDailyLimit(uint256 requested, uint256 remaining);
+    error DecentralizedStableCoin__InvalidMinter(address minter);
+    error DecentralizedStableCoin__InvalidDailyLimit(uint256 limit);
 
     constructor(string memory name, string memory symbol) ERC20(name, symbol) Ownable(msg.sender) {
         dailyMintLimit = INITIAL_DAILY_LIMIT;
@@ -78,7 +78,7 @@ contract MantleStableCoin is ERC20, Pausable, Ownable, ReentrancyGuard {
     /// @param account 账户地址
     function addToBlacklist(address account) external onlyOwner {
         if (blacklisted[account]) {
-            revert MantleStableCoin__AlreadyBlacklisted();
+            revert DecentralizedStableCoin__AlreadyBlacklisted();
         }
         blacklisted[account] = true;
         emit Blacklisted(account);
@@ -88,7 +88,7 @@ contract MantleStableCoin is ERC20, Pausable, Ownable, ReentrancyGuard {
     /// @param account 账户地址
     function removeFromBlacklist(address account) external onlyOwner {
         if (!blacklisted[account]) {
-            revert MantleStableCoin__NotBlacklisted();
+            revert DecentralizedStableCoin__NotBlacklisted();
         }
         blacklisted[account] = false;
         emit BlacklistRemoved(account);
@@ -99,25 +99,28 @@ contract MantleStableCoin is ERC20, Pausable, Ownable, ReentrancyGuard {
     /// @param amount 铸币数量
     function mint(address to, uint256 amount) external nonReentrant whenNotPaused returns (bool) {
         if (!minters[msg.sender]) {
-            revert MantleStableCoin__InvalidMinter(msg.sender);
+            revert DecentralizedStableCoin__InvalidMinter(msg.sender);
         }
         if (blacklisted[to]) {
-            revert MantleStableCoin__Blacklisted();
+            revert DecentralizedStableCoin__Blacklisted();
         }
         if (amount == 0) {
-            revert MantleStableCoin__InvalidAmount();
+            revert DecentralizedStableCoin__InvalidAmount();
         }
 
-        uint256 currentDay = block.timestamp / DAILY_SECONDS;
-        DailyMint storage dailyMint = dailyMints[currentDay];
-        uint256 newDailyTotal = dailyMint.amount + amount;
-        if (newDailyTotal > dailyMintLimit) {
-            revert MantleStableCoin__ExceedsDailyLimit(amount, dailyMintLimit - dailyMint.amount);
-        }
+        // uint256 currentDay = block.timestamp / DAILY_SECONDS;
+        // DailyMint storage dailyMint = dailyMints[currentDay];
+        // uint256 newDailyTotal = dailyMint.amount + amount;
+        // if (newDailyTotal > dailyMintLimit) {
+        //     revert DecentralizedStableCoin__ExceedsDailyLimit(
+        //         amount,
+        //         dailyMintLimit - dailyMint.amount
+        //     );
+        // }
 
-        // 更新状态
-        dailyMint.amount = uint128(newDailyTotal); // 安全转换
-        dailyMint.timestamp = uint64(block.timestamp);
+        // // 更新状态
+        // dailyMint.amount = uint128(newDailyTotal); // 安全转换
+        // dailyMint.timestamp = uint64(block.timestamp);
 
         // 铸币
         _mint(to, amount);
@@ -128,10 +131,10 @@ contract MantleStableCoin is ERC20, Pausable, Ownable, ReentrancyGuard {
     /// @param amount 销毁数量
     function burn(uint256 amount) external nonReentrant whenNotPaused {
         if (blacklisted[msg.sender]) {
-            revert MantleStableCoin__Blacklisted();
+            revert DecentralizedStableCoin__Blacklisted();
         }
         if (amount == 0) {
-            revert MantleStableCoin__InvalidAmount();
+            revert DecentralizedStableCoin__InvalidAmount();
         }
         _burn(msg.sender, amount);
     }
@@ -140,7 +143,7 @@ contract MantleStableCoin is ERC20, Pausable, Ownable, ReentrancyGuard {
     /// @param newLimit 新的限额
     function updateDailyLimit(uint256 newLimit) external onlyOwner {
         if (newLimit > MAX_DAILY_LIMIT) {
-            revert MantleStableCoin__InvalidDailyLimit(newLimit);
+            revert DecentralizedStableCoin__InvalidDailyLimit(newLimit);
         }
 
         emit DailyLimitUpdated(dailyMintLimit, newLimit);
@@ -152,7 +155,7 @@ contract MantleStableCoin is ERC20, Pausable, Ownable, ReentrancyGuard {
     /// @param status 权限状态
     function updateMinter(address minter, bool status) external onlyOwner {
         if (minter == address(0)) {
-            revert MantleStableCoin__InvalidMinter(minter);
+            revert DecentralizedStableCoin__InvalidMinter(minter);
         }
 
         minters[minter] = status;
@@ -169,7 +172,7 @@ contract MantleStableCoin is ERC20, Pausable, Ownable, ReentrancyGuard {
         uint256 amount
     ) internal virtual override whenNotPaused {
         if (blacklisted[from] || blacklisted[to]) {
-            revert MantleStableCoin__Blacklisted();
+            revert DecentralizedStableCoin__Blacklisted();
         }
 
         // 检查每日限额（如果是铸币操作）
@@ -177,7 +180,7 @@ contract MantleStableCoin is ERC20, Pausable, Ownable, ReentrancyGuard {
             uint256 currentDay = block.timestamp / DAILY_SECONDS;
             DailyMint storage dailyMint = dailyMints[currentDay];
             if (dailyMint.amount + amount > dailyMintLimit) {
-                revert MantleStableCoin__ExceedsDailyLimit(
+                revert DecentralizedStableCoin__ExceedsDailyLimit(
                     amount,
                     dailyMintLimit - dailyMint.amount
                 );

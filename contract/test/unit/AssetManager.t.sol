@@ -20,6 +20,7 @@ contract AssetManagerTest is Test {
         assetManager = new AssetManager();
         weth = new MockERC20("Wrapped ETH", "WETH");
         usdc = new MockERC20("USD Coin", "USDC");
+        assetManager.updateAddRole(address(this), true);
 
         vm.stopPrank();
     }
@@ -31,7 +32,10 @@ contract AssetManagerTest is Test {
             isSupported: true,
             collateralFactor: 75e16, // 75%
             borrowFactor: 80e16, // 80%
-            liquidationFactor: 5e16 // 5%
+            symbol: "WETH",
+            name: "Wrapped ETH",
+            decimals: 18,
+            icon: "https://assets.coingecko.com/coins/images/279/small/ethereum.png"
         });
 
         vm.expectEmit(true, false, false, true);
@@ -43,7 +47,6 @@ contract AssetManagerTest is Test {
         assertEq(savedConfig.isSupported, true);
         assertEq(savedConfig.collateralFactor, 75e16);
         assertEq(savedConfig.borrowFactor, 80e16);
-        assertEq(savedConfig.liquidationFactor, 5e16);
 
         vm.stopPrank();
     }
@@ -55,7 +58,10 @@ contract AssetManagerTest is Test {
             isSupported: true,
             collateralFactor: 2e18, // 200%
             borrowFactor: 80e16,
-            liquidationFactor: 5e16
+            symbol: "WETH",
+            name: "Wrapped ETH",
+            decimals: 18,
+            icon: "https://assets.coingecko.com/coins/images/279/small/ethereum.png"
         });
 
         vm.expectRevert(AssetManager.AssetManager__InvalidFactor.selector);
@@ -71,7 +77,10 @@ contract AssetManagerTest is Test {
             isSupported: true,
             collateralFactor: 75e16,
             borrowFactor: 80e16,
-            liquidationFactor: 5e16
+            symbol: "WETH",
+            name: "Wrapped ETH",
+            decimals: 18,
+            icon: "https://assets.coingecko.com/coins/images/279/small/ethereum.png"
         });
 
         vm.expectRevert(AssetManager.AssetManager__InvalidAsset.selector);
@@ -87,7 +96,10 @@ contract AssetManagerTest is Test {
             isSupported: true,
             collateralFactor: 75e16,
             borrowFactor: 80e16,
-            liquidationFactor: 5e16
+            symbol: "WETH",
+            name: "Wrapped ETH",
+            decimals: 18,
+            icon: "https://assets.coingecko.com/coins/images/279/small/ethereum.png"
         });
 
         assetManager.addAsset(address(weth), config);
@@ -106,7 +118,10 @@ contract AssetManagerTest is Test {
             isSupported: true,
             collateralFactor: 75e16,
             borrowFactor: 80e16,
-            liquidationFactor: 5e16
+            symbol: "WETH",
+            name: "Wrapped ETH",
+            decimals: 18,
+            icon: "https://assets.coingecko.com/coins/images/279/small/ethereum.png"
         });
         assetManager.addAsset(address(weth), config);
 
@@ -115,7 +130,10 @@ contract AssetManagerTest is Test {
             isSupported: true,
             collateralFactor: 70e16,
             borrowFactor: 75e16,
-            liquidationFactor: 6e16
+            symbol: "WETH",
+            name: "Wrapped ETH",
+            decimals: 18,
+            icon: "https://assets.coingecko.com/coins/images/279/small/ethereum.png"
         });
 
         vm.expectEmit(true, false, false, true);
@@ -126,7 +144,6 @@ contract AssetManagerTest is Test {
         AssetManager.AssetConfig memory savedConfig = assetManager.getAssetConfig(address(weth));
         assertEq(savedConfig.collateralFactor, 70e16);
         assertEq(savedConfig.borrowFactor, 75e16);
-        assertEq(savedConfig.liquidationFactor, 6e16);
 
         vm.stopPrank();
     }
@@ -138,7 +155,10 @@ contract AssetManagerTest is Test {
             isSupported: true,
             collateralFactor: 75e16,
             borrowFactor: 80e16,
-            liquidationFactor: 5e16
+            symbol: "WETH",
+            name: "Wrapped ETH",
+            decimals: 18,
+            icon: "https://assets.coingecko.com/coins/images/279/small/ethereum.png"
         });
 
         vm.expectRevert(AssetManager.AssetManager__AssetNotSupported.selector);
@@ -154,7 +174,10 @@ contract AssetManagerTest is Test {
             isSupported: true,
             collateralFactor: 75e16,
             borrowFactor: 80e16,
-            liquidationFactor: 5e16
+            symbol: "WETH",
+            name: "Wrapped ETH",
+            decimals: 18,
+            icon: "https://assets.coingecko.com/coins/images/279/small/ethereum.png"
         });
 
         assetManager.addAsset(address(weth), config);
@@ -175,7 +198,10 @@ contract AssetManagerTest is Test {
             isSupported: true,
             collateralFactor: 75e16,
             borrowFactor: 80e16,
-            liquidationFactor: 5e16
+            symbol: "WETH",
+            name: "Wrapped ETH",
+            decimals: 18,
+            icon: "https://assets.coingecko.com/coins/images/279/small/ethereum.png"
         });
 
         assetManager.addAsset(address(weth), config);

@@ -13,20 +13,20 @@ import {TimeWeightedRewards} from "./libraries/TimeWeightedRewards.sol";
 import {InsurancePool} from "./InsurancePool.sol";
 import {API3Feed} from "./price-feeds/API3Feed.sol";
 import {AssetManager} from "./AssetManager.sol";
-import {OracleLib} from "./libraries/OracleLib.sol";
+import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
 
 /// @title 借贷池合约
 /// @notice 管理存款、借款和还款业务
 contract LendingPool is Ownable, ReentrancyGuard, Pausable {
-    // 使用 OracleLib 库处理价格源
-    using OracleLib for AggregatorV3Interface;
-
+    using SafeERC20 for IERC20;
     // Type declarations
     struct UserInfo {
         uint128 depositAmount; // 用户存款金额
         uint128 borrowAmount; // 用户借款金额
         uint64 lastUpdateTime; // 最后更新时间
         uint256 rewardDebt; // 奖励债务
+        uint256 borrowIndex; // 用户借款指数
+        uint256 depositIndex; // 用户存款指数
     }
 
     struct AssetInfo {
@@ -34,21 +34,22 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
         uint256 totalBorrows; // 总借款
         uint256 lastUpdateTime; // 最后更新时间
         uint256 currentRate; // 当前利率
-        uint256 collateralFactor; // 抵押率
+        uint256 borrowRate; // 借款利率
+        uint256 depositRate; // 存款利率
+        uint256 reserveFactor; // 储备金率
+        uint256 borrowIndex; // 借款指数
+        uint256 depositIndex; // 存款指数
     }
 
     // State variables
     // Constants
     uint256 private constant PRECISION = 1e18;
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
-    uint256 private constant MIN_HEALTH_FACTOR = 1e18;
-    uint256 private immutable LIQUIDATION_THRESHOLD = 11e17; // 最小清算阈值 (110%)
-    uint256 private immutable LIQUIDATION_BONUS = 5e16; // 清算奖励 (5%)
 
     // Immutable state variables
     InsurancePool public immutable insurancePool; // 保险池合约
-    IERC20 public immutable rewardToken; // 奖励代币
     AssetManager public immutable assetManager; // 资产管理器
+    DecentralizedStableCoin public immutable dsc; // 去中心化稳定币
 
     // Mutable state variables
     mapping(address token => address priceFeed) private s_priceFeeds; // 价格预言机
@@ -76,6 +77,8 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
         uint256 amount
     );
     event AssetInfoUpdated(address indexed asset, uint256 newRate, uint256 accRewardPerShare);
+    event AssetAdded(address indexed token, address indexed priceFeed);
+    event RewardClaimed(address indexed asset, address indexed user, uint256 amount);
 
     // Errors
     error LendingPool__TokenAddressesAndPriceFeedAddressesAmountsDontMatch();
@@ -93,6 +96,9 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
     error LendingPool__HealthFactorNotImproved();
     error LendingPool__InsufficientBalance();
     error LendingPool__WithdrawExceedsThreshold();
+    error LendingPool__AssetAlreadySupported();
+    error LendingPool__InvalidAddress();
+    error LendingPool__MintFailed();
 
     /// @notice 构造函数
     /// @param _insurancePool 保险池地址
@@ -108,10 +114,10 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
         address[] memory priceFeedAddresses
     ) Ownable(msg.sender) {
         insurancePool = InsurancePool(_insurancePool);
-        rewardToken = IERC20(_rewardToken);
         rewardPerBlock = _rewardPerBlock;
         lastRewardBlock = block.number;
         assetManager = AssetManager(_assetManager);
+        dsc = DecentralizedStableCoin(_rewardToken);
 
         if (tokenAddresses.length != priceFeedAddresses.length) {
             revert LendingPool__TokenAddressesAndPriceFeedAddressesAmountsDontMatch();
@@ -119,6 +125,19 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
         for (uint256 i = 0; i < tokenAddresses.length; i++) {
             s_priceFeeds[tokenAddresses[i]] = priceFeedAddresses[i];
             s_assertTokens.push(tokenAddresses[i]);
+
+            // 初始化资产信息
+            assetInfo[tokenAddresses[i]] = AssetInfo({
+                totalDeposits: 0,
+                totalBorrows: 0,
+                lastUpdateTime: block.timestamp,
+                currentRate: InterestRateModel.calculateInterestRate(0, 0),
+                borrowRate: 0,
+                depositRate: 0,
+                reserveFactor: 1e17, // 10% 储备金率
+                borrowIndex: 1e18, // 初始指数
+                depositIndex: 1e18 // 初始指数
+            });
         }
     }
 
@@ -153,36 +172,59 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
             revert LendingPool__InvalidAmount();
         }
 
+        // 更新资产信息和奖励
+        updateAssetInfo(asset);
+
         UserInfo storage user = userInfo[asset][msg.sender];
         AssetInfo storage assetData = assetInfo[asset];
-        // 计算时间加权奖励
+
+        // 如果用户已有存款，计算累积利息
+        uint256 accruedInterest = 0;
+        if (user.depositAmount > 0) {
+            accruedInterest = _calculateAccruedInterest(
+                user.depositAmount,
+                user.depositIndex,
+                assetData.depositIndex
+            );
+        }
+
+        // 更新实际存款金额（包含利息）
+        uint256 newDepositAmount = user.depositAmount + amount + accruedInterest;
+        user.depositAmount = uint128(newDepositAmount);
+
+        // 计算时间加权金额（仅用于奖励计算）
         uint256 weightedAmount;
         if (user.depositAmount > 0 && user.lastUpdateTime > 0) {
             // 计算现有存款的时间加权金额
-            uint256 existingWeightedAmount = TimeWeightedRewards.calculateWeightedAmount(
+            weightedAmount = TimeWeightedRewards.calculateWeightedAmount(
                 user.depositAmount,
                 user.lastUpdateTime,
                 block.timestamp
             );
-            // 新存款金额加上时间加权后的现有存款
-            weightedAmount = amount + existingWeightedAmount;
         } else {
             weightedAmount = amount;
         }
-        // 更新用户信息
-        user.depositAmount = uint128(weightedAmount);
+        // 更新时间戳
         user.lastUpdateTime = uint64(block.timestamp);
-        assetData.totalDeposits += amount;
+
         // 执行转账
-        SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), amount);
-        // 更新资产信息和奖励
-        updateAssetInfo(asset);
+        IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
+
         // 更新奖励债务（代币奖励）
-        uint256 pending = (weightedAmount * accRewardPerShare[asset]) / 1e18 - user.rewardDebt;
+        uint256 pending = (weightedAmount * accRewardPerShare[asset]) / PRECISION - user.rewardDebt;
         if (pending > 0) {
-            SafeERC20.safeTransfer(rewardToken, msg.sender, pending);
+            bool success = dsc.mint(msg.sender, pending);
+            if (!success) {
+                revert LendingPool__MintFailed();
+            }
         }
-        user.rewardDebt = (weightedAmount * accRewardPerShare[asset]) / 1e18;
+        user.rewardDebt = (weightedAmount * accRewardPerShare[asset]) / PRECISION;
+
+        // 更新用户存款指数
+        user.depositIndex = assetData.depositIndex;
+
+        // 更新总存款
+        assetData.totalDeposits += amount + accruedInterest;
 
         emit Deposit(asset, msg.sender, amount, block.timestamp);
     }
@@ -195,34 +237,49 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
         address asset,
         uint256 amount
     ) external nonReentrant whenNotPaused onlySupportedAsset(asset) {
-        AssetManager.AssetConfig memory config = assetManager.getAssetConfig(asset);
+        if (amount == 0) {
+            revert LendingPool__InvalidAmount();
+        }
+
+        // 更新资产信息和奖励
+        updateAssetInfo(asset);
+
         UserInfo storage user = userInfo[asset][msg.sender];
-        // 获取用户抵押品价值（已经���USD计价）
-        uint256 collateralValue = getCollateralValue(msg.sender);
-        // 获取资产价格
-        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[asset]);
-        (, int256 price, , , ) = priceFeed.staleCheckLatestRoundData();
-        // 计算当前借款总价值（USD）
-        uint256 currentBorrowValueUSD = (user.borrowAmount * uint256(price));
-        // 计算新借款价值（USD）
-        uint256 newBorrowValueUSD = (amount * uint256(price));
-        // 计算借款限额（USD）
-        uint256 borrowLimitUSD = (collateralValue * config.borrowFactor) / 1e18;
+        AssetInfo storage assetData = assetInfo[asset];
+
+        // 如果用户已有借款，计算累积利息
+        if (user.borrowAmount > 0) {
+            uint256 borrowInterest = _calculateAccruedInterest(
+                user.borrowAmount,
+                user.borrowIndex,
+                assetData.borrowIndex
+            );
+            user.borrowAmount += uint128(borrowInterest);
+            assetData.totalBorrows += borrowInterest;
+        }
+
+        // 获取资产价格并计算可借款价值
+        (, int256 price, , , ) = AggregatorV3Interface(s_priceFeeds[asset]).latestRoundData();
+        uint256 currentBorrowValueUSD = (user.borrowAmount *
+            uint256(price) *
+            ADDITIONAL_FEED_PRECISION) / PRECISION;
+        uint256 newBorrowValueUSD = (amount * uint256(price) * ADDITIONAL_FEED_PRECISION) /
+            PRECISION;
+        uint256 borrowLimitUSD = getUserBorrowLimitInUSD(msg.sender);
 
         // 检查总借款价值是否超过限额
         if (currentBorrowValueUSD + newBorrowValueUSD > borrowLimitUSD) {
             revert LendingPool__ExceedsMaxBorrowFactor();
         }
-        // 更新用户借款金额
+        // 更新用户借款信息
         user.borrowAmount = uint128(user.borrowAmount + amount);
+        user.borrowIndex = assetData.borrowIndex;
         user.lastUpdateTime = uint64(block.timestamp);
+
         // 更新资产总借款金额
-        AssetInfo storage assetData = assetInfo[asset];
         assetData.totalBorrows += amount;
 
-        SafeERC20.safeTransfer(IERC20(asset), msg.sender, amount);
-        // 更新资产信息和奖励
-        updateAssetInfo(asset);
+        IERC20(asset).safeTransfer(msg.sender, amount);
 
         emit Borrow(asset, msg.sender, amount);
     }
@@ -231,58 +288,38 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
     /// @param asset 资产地址
     /// @param amount 还款金额
     function repay(address asset, uint256 amount) external nonReentrant {
-        UserInfo storage user = userInfo[asset][msg.sender];
-        uint256 repayAmount = amount > user.borrowAmount ? user.borrowAmount : amount;
+        if (amount == 0) revert LendingPool__InvalidAmount();
 
-        user.borrowAmount = uint128(user.borrowAmount - repayAmount);
-        user.lastUpdateTime = uint64(block.timestamp);
-
-        AssetInfo storage assetData = assetInfo[asset];
-        assetData.totalBorrows -= repayAmount;
-
-        SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), repayAmount);
-        // 更新资产信息和奖励
         updateAssetInfo(asset);
 
-        emit Repay(asset, msg.sender, repayAmount);
-    }
+        UserInfo storage user = userInfo[asset][msg.sender];
+        AssetInfo storage assetData = assetInfo[asset];
 
-    /// @notice 清算不良头寸
-    /// @param asset 资产地址
-    /// @param user 被清算用户地址
-    /// @param repayAmount 清算金额
-    function liquidate(
-        address asset,
-        address user,
-        uint256 repayAmount
-    ) external nonReentrant whenNotPaused {
-        UserInfo storage borrower = userInfo[asset][user];
-        uint256 startingHealthFactor = _healthFactor(user);
+        // 先计算累积的借款利息
+        uint256 borrowInterest = _calculateAccruedInterest(
+            user.borrowAmount,
+            user.borrowIndex,
+            assetData.borrowIndex
+        );
 
-        if (startingHealthFactor >= MIN_HEALTH_FACTOR) {
-            revert LendingPool__HealthFactorOk();
-        }
+        // 计算总债务
+        uint256 totalDebt = user.borrowAmount + borrowInterest;
+        if (totalDebt == 0) revert LendingPool__InvalidAmount();
 
-        uint256 actualRepayAmount;
-        uint256 bonus;
-        {
-            actualRepayAmount = repayAmount > borrower.borrowAmount
-                ? uint256(borrower.borrowAmount)
-                : repayAmount;
-            bonus = (actualRepayAmount * LIQUIDATION_BONUS) / PRECISION;
-        }
+        // 计算实际还款金额
+        uint256 actualRepayAmount = amount > totalDebt ? totalDebt : amount;
 
-        borrower.borrowAmount -= uint128(actualRepayAmount);
-        borrower.lastUpdateTime = uint64(block.timestamp);
+        // 更新用户借款金额
+        user.borrowAmount = uint128(totalDebt - actualRepayAmount);
+        user.borrowIndex = assetData.borrowIndex;
+        user.lastUpdateTime = uint64(block.timestamp);
 
-        _handleLiquidationTransfers(asset, user, msg.sender, actualRepayAmount, bonus);
+        // 更新总借款金额
+        assetData.totalBorrows = assetData.totalBorrows + borrowInterest - actualRepayAmount;
 
-        uint256 endingHealthFactor = _healthFactor(user);
-        if (endingHealthFactor <= startingHealthFactor) {
-            revert LendingPool__HealthFactorNotImproved();
-        }
+        IERC20(asset).safeTransferFrom(msg.sender, address(this), actualRepayAmount);
 
-        emit Liquidate(asset, user, msg.sender, actualRepayAmount);
+        emit Repay(asset, msg.sender, actualRepayAmount);
     }
 
     /// @notice 更新并领取奖励
@@ -291,11 +328,33 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
         updateAssetInfo(asset);
         UserInfo storage user = userInfo[asset][msg.sender];
 
-        uint256 pending = (user.depositAmount * accRewardPerShare[asset]) / 1e18 - user.rewardDebt;
+        // 计算累积的存款利息
+        uint256 depositInterest = _calculateAccruedInterest(
+            user.depositAmount,
+            user.depositIndex,
+            assetInfo[asset].depositIndex
+        );
+
+        // 计算时间加权金额
+        uint256 weightedAmount = TimeWeightedRewards.calculateWeightedAmount(
+            user.depositAmount + depositInterest,
+            user.lastUpdateTime,
+            block.timestamp
+        );
+
+        // 计算待领取奖励
+        uint256 pending = (weightedAmount * accRewardPerShare[asset]) / PRECISION - user.rewardDebt;
 
         if (pending > 0) {
-            user.rewardDebt = (user.depositAmount * accRewardPerShare[asset]) / 1e18;
-            SafeERC20.safeTransfer(rewardToken, msg.sender, pending);
+            // 更新用户状态
+            user.depositIndex = assetInfo[asset].depositIndex;
+            user.lastUpdateTime = uint64(block.timestamp);
+            user.rewardDebt = (weightedAmount * accRewardPerShare[asset]) / PRECISION;
+
+            // 铸造奖励
+            dsc.mint(msg.sender, pending);
+
+            emit RewardClaimed(asset, msg.sender, pending);
         }
     }
 
@@ -306,23 +365,68 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
         AssetInfo storage assetData = assetInfo[asset];
         uint256 _lastRewardBlock = lastRewardBlock;
 
-        if (block.number <= _lastRewardBlock) return;
+        if (block.number > _lastRewardBlock) {
+            uint256 reward;
+            unchecked {
+                uint256 multiplier = block.number - _lastRewardBlock;
+                reward = multiplier * rewardPerBlock;
+            }
 
-        uint256 reward;
-        unchecked {
-            uint256 multiplier = block.number - _lastRewardBlock;
-            reward = multiplier * rewardPerBlock;
+            // 更新奖励份额
+            if (assetData.totalDeposits > 0) {
+                accRewardPerShare[asset] += (reward * PRECISION) / assetData.totalDeposits;
+            }
         }
 
+        // 计算累积利息
+        uint256 timeElapsed = block.timestamp - assetData.lastUpdateTime;
+        if (timeElapsed > 0) {
+            // 更新借款指数
+            if (assetData.totalBorrows > 0 && assetData.borrowRate > 0) {
+                uint256 borrowInterest = InterestRateModel.calculateInterest(
+                    assetData.totalBorrows,
+                    assetData.borrowRate,
+                    timeElapsed
+                );
+                if (borrowInterest > 0) {
+                    // 更新借款指数
+                    uint256 borrowIndexDelta = (borrowInterest * PRECISION) /
+                        assetData.totalBorrows;
+                    assetData.borrowIndex += borrowIndexDelta;
+
+                    // 更新总借款金额
+                    assetData.totalBorrows += borrowInterest;
+
+                    // 计算储备金
+                    uint256 reserveAmount = (borrowInterest * assetData.reserveFactor) / PRECISION;
+                    assetManager.addReserves(asset, reserveAmount);
+
+                    // 计算存款利息（总借款利息 - 储备金）
+                    uint256 depositInterest = borrowInterest - reserveAmount;
+
+                    if (assetData.totalDeposits > 0) {
+                        uint256 depositIndexDelta = (depositInterest * PRECISION) /
+                            assetData.totalDeposits;
+                        assetData.depositIndex += depositIndexDelta;
+                        assetData.totalDeposits += depositInterest;
+                    }
+                }
+            }
+        }
+
+        // 更新借款利率和存款利率
         if (assetData.totalDeposits > 0) {
-            accRewardPerShare[asset] += (reward * 1e18) / assetData.totalDeposits;
-        }
+            assetData.borrowRate = InterestRateModel.calculateInterestRate(
+                assetData.totalBorrows,
+                assetData.totalDeposits
+            );
 
-        // 更新资产利率
-        assetData.currentRate = InterestRateModel.calculateInterestRate(
-            assetData.totalBorrows,
-            assetData.totalDeposits
-        );
+            assetData.depositRate = InterestRateModel.calculateDepositRate(
+                assetData.totalBorrows,
+                assetData.totalDeposits,
+                assetData.reserveFactor
+            );
+        }
 
         lastRewardBlock = block.number;
         assetData.lastUpdateTime = block.timestamp;
@@ -334,32 +438,42 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
     /// @param asset 资产地址
     /// @param amount 提取金额
     function withdraw(address asset, uint256 amount) external nonReentrant {
+        updateAssetInfo(asset);
+
         UserInfo storage user = userInfo[asset][msg.sender];
-        if (user.depositAmount < amount) {
+
+        // 计算累积的存款利息
+        uint256 depositInterest = _calculateAccruedInterest(
+            user.depositAmount,
+            user.depositIndex,
+            assetInfo[asset].depositIndex
+        );
+
+        uint256 totalDeposit = user.depositAmount + depositInterest;
+        if (totalDeposit < amount) {
             revert LendingPool__InsufficientBalance();
         }
 
+        (, uint256 borrowedValue) = getUserTotalValueInUSD(msg.sender);
         // 检查提取后的抵押率
-        uint256 newCollateralValue = getCollateralValue(msg.sender) - amount;
         if (
-            user.borrowAmount > 0 &&
-            newCollateralValue < (user.borrowAmount * LIQUIDATION_THRESHOLD) / 1e18
+            // 如果用户有借款，需要 借款限额 > 借款额度
+            borrowedValue > 0 && borrowedValue > getUserBorrowLimitInUSD(msg.sender)
         ) {
             revert LendingPool__WithdrawExceedsThreshold();
         }
 
         user.depositAmount = uint128(user.depositAmount - amount);
+        user.depositIndex = assetInfo[asset].depositIndex;
         user.lastUpdateTime = uint64(block.timestamp);
 
-        AssetInfo storage assetData = assetInfo[asset];
-        assetData.totalDeposits -= amount;
+        assetInfo[asset].totalDeposits -= amount;
 
         // 更新奖励债务
-        user.rewardDebt = (user.depositAmount * accRewardPerShare[asset]) / 1e18;
+        user.rewardDebt = (user.depositAmount * accRewardPerShare[asset]) / PRECISION;
 
-        SafeERC20.safeTransfer(IERC20(asset), msg.sender, amount);
+        IERC20(asset).safeTransfer(msg.sender, amount);
 
-        updateAssetInfo(asset);
         emit Withdraw(asset, msg.sender, amount);
     }
 
@@ -378,110 +492,335 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
             if (curUserInfo.depositAmount > 0) {
                 AssetManager.AssetConfig memory config = assetManager.getAssetConfig(asset);
                 AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[asset]);
-                (, int256 price, , , ) = priceFeed.staleCheckLatestRoundData();
-                uint256 assetValue = uint256(curUserInfo.depositAmount) * uint256(price);
-                totalValue += (assetValue * config.collateralFactor) / 1e18;
+                (, int256 price, , , ) = priceFeed.latestRoundData();
+                uint256 assetValue = (uint256(curUserInfo.depositAmount) *
+                    uint256(price) *
+                    ADDITIONAL_FEED_PRECISION) / PRECISION;
+                totalValue += (assetValue * config.collateralFactor) / PRECISION;
             }
         }
 
         return totalValue;
     }
 
-    function _handleLiquidationTransfers(
-        address asset,
-        address /* user */,
-        address liquidator,
-        uint256 repayAmount,
-        uint256 bonus
-    ) internal {
-        SafeERC20.safeTransferFrom(IERC20(asset), liquidator, address(this), repayAmount);
-        SafeERC20.safeTransfer(IERC20(asset), liquidator, repayAmount + bonus);
-    }
-
-    function _healthFactor(address user) private view returns (uint256) {
-        uint256 totalCollateralValue = getCollateralValue(user);
-        if (totalCollateralValue == 0) return 0;
-
-        uint256 borrowValue = 0;
-        address[] memory assets = assetManager.getSupportedAssets();
-
-        for (uint256 i = 0; i < assets.length; i++) {
-            address asset = assets[i];
-            UserInfo storage userAsset = userInfo[asset][user];
-            if (userAsset.borrowAmount > 0) {
-                AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[asset]);
-                (, int256 price, , , ) = priceFeed.staleCheckLatestRoundData();
-                uint256 assetValue = uint256(userAsset.borrowAmount) * uint256(price);
-                borrowValue += assetValue;
-            }
+    /// @notice 添加新的支持资产
+    /// @param token 资产地址
+    /// @param priceFeed 价格预言机地址
+    /// @param config 资产配置
+    function addAsset(
+        address token,
+        address priceFeed,
+        AssetManager.AssetConfig calldata config
+    ) external onlyOwner {
+        // 检查资产是否已存在
+        if (s_priceFeeds[token] != address(0)) {
+            revert LendingPool__AssetAlreadySupported();
         }
 
-        if (borrowValue == 0) return type(uint256).max;
-        return (totalCollateralValue * PRECISION) / borrowValue;
+        // 验证地址有效性
+        if (token == address(0) || priceFeed == address(0)) {
+            revert LendingPool__InvalidAddress();
+        }
+
+        // 添加价格预言机
+        s_priceFeeds[token] = priceFeed;
+        s_assertTokens.push(token);
+
+        // 在资产管理器中添加资产
+        assetManager.addAsset(token, config);
+
+        // 初始化资产信息
+        assetInfo[token] = AssetInfo({
+            totalDeposits: 0,
+            totalBorrows: 0,
+            lastUpdateTime: block.timestamp,
+            currentRate: InterestRateModel.calculateInterestRate(0, 0),
+            borrowRate: 0,
+            depositRate: 0,
+            reserveFactor: 1e17, // 10% 储备金率
+            borrowIndex: PRECISION, // 初始指数
+            depositIndex: PRECISION // 初始指数
+        });
+
+        emit AssetAdded(token, priceFeed);
     }
 
-    function getHealthFactor(address user) external view returns (uint256) {
-        return _healthFactor(user);
+    /// @notice 计算累积利息
+    /// @param principal 本金
+    /// @param userIndex 用户上次指数
+    /// @param currentIndex 当前指数
+    /// @return 累积的利息
+    function _calculateAccruedInterest(
+        uint256 principal,
+        uint256 userIndex,
+        uint256 currentIndex
+    ) internal pure returns (uint256) {
+        // 如果指数相同，说明没有新的利息
+        if (userIndex == currentIndex) return 0;
+        if (userIndex == 0) return 0;
+        // 计算利息：本金 * (当前指数 / 用户上次指数 - 1)
+        return (principal * (currentIndex - userIndex)) / userIndex;
     }
 
+    function _updateBorrowIndex(address asset) internal {
+        AssetInfo storage assetData = assetInfo[asset];
+        uint256 timeElapsed = block.timestamp - assetData.lastUpdateTime;
+
+        if (timeElapsed > 0 && assetData.totalBorrows > 0 && assetData.borrowRate > 0) {
+            // 计算新的借款指数
+            uint256 borrowInterest = InterestRateModel.calculateInterest(
+                assetData.totalBorrows,
+                assetData.borrowRate,
+                timeElapsed
+            );
+            uint256 borrowIndexDelta = (borrowInterest * PRECISION) / assetData.totalBorrows;
+            assetData.borrowIndex += borrowIndexDelta;
+        }
+    }
+
+    /// @notice 获取用户借款数量
+    /// @param user 用户地址
+    /// @param asset 资产地址
+    /// @return 借款数量
     function getUserBorrowAmount(address user, address asset) external view returns (uint256) {
         return userInfo[asset][user].borrowAmount;
     }
 
-    function getUserBorrowUsdValue(address user, address asset) public view returns (uint256) {
-        uint256 borrowValue = 0;
-        UserInfo storage userAsset = userInfo[asset][user];
-        if (userAsset.borrowAmount > 0) {
-            AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[asset]);
-            (, int256 price, , , ) = priceFeed.staleCheckLatestRoundData();
-            uint256 assetValue = uint256(userAsset.borrowAmount) * uint256(price);
-            borrowValue += assetValue;
-        }
-        return borrowValue;
+    /// @notice 获取用户借款价值
+    /// @param asset 资产地址
+    /// @param borrowAmount 借款数量
+    /// @return 借款价值 (USD)
+    function _getUserBorrowUsdValue(
+        address asset,
+        uint256 borrowAmount
+    ) public view returns (uint256) {
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[asset]);
+        (, int256 price, , , ) = priceFeed.latestRoundData();
+        uint256 assetValue = (
+            (uint256(borrowAmount) * uint256(price) * ADDITIONAL_FEED_PRECISION)
+        ) / PRECISION;
+        return assetValue;
     }
 
     /// @notice 获取用户当前的借款限额
     /// @param user 用户地址
     /// @param asset 资产地址
     /// @dev 借款数量 = (抵押品价值 - 已借款价值) * 借款因子 / （价格 * 1e18）
-    function getUserBorrowLimit(address user, address asset) external view returns (uint256) {
-        if (!assetManager.isAssetSupported(asset)) revert LendingPool__AssetNotSupported();
+    function getUserBorrowLimit(
+        address user,
+        address asset
+    ) public view onlySupportedAsset(asset) returns (uint256) {
+        // 获取最大借款限额
+        uint256 borrowLimit = getUserBorrowLimitInUSD(user);
 
-        uint256 collateralValue = getCollateralValue(user);
-        if (collateralValue == 0) return 0;
+        // 获取当前已借款价值
+        (, uint256 borrowedValue) = getUserTotalValueInUSD(user);
+        if (borrowedValue >= borrowLimit) return 0;
+
+        // 获取资产配置和价格
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[asset]);
+        (, int256 price, , , ) = priceFeed.latestRoundData();
+
+        uint256 availableValue = borrowLimit - borrowedValue;
+
+        return (availableValue * PRECISION) / (uint256(price) * ADDITIONAL_FEED_PRECISION);
+    }
+
+    /// @notice 获取资产价值
+    /// @param asset 资产地址
+    /// @param amount 资产数量
+    /// @return 资产价值 (USD)
+    function getValueUsdByAmount(address asset, uint256 amount) public view returns (uint256) {
+        if (amount == 0) return 0;
+        uint256 value = 0;
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[asset]);
+        (, int256 price, , , ) = priceFeed.latestRoundData();
+        uint256 assetValue = (uint256(amount) * uint256(price) * ADDITIONAL_FEED_PRECISION) /
+            PRECISION;
+        value += assetValue;
+        return value;
+    }
+
+    /// @notice 获取用户总借款价值
+    /// @param user 用户地址
+    function getUserTotalValueInUSD(
+        address user
+    ) public view returns (uint256 totalDepositValue, uint256 totalBorrowValue) {
+        address[] memory assets = assetManager.getSupportedAssets();
+        for (uint256 i = 0; i < assets.length; i++) {
+            address asset = assets[i];
+            UserInfo storage userAsset = userInfo[asset][user];
+            if (userAsset.depositAmount > 0) {
+                uint256 depositValue = getValueUsdByAmount(asset, userAsset.depositAmount);
+                totalDepositValue += depositValue;
+            }
+            if (userAsset.borrowAmount > 0) {
+                uint256 borrowValue = _getUserBorrowUsdValue(asset, userAsset.borrowAmount);
+                totalBorrowValue += borrowValue;
+            }
+        }
+    }
+
+    /// @notice 获取用户总借款限额
+    /// @param user 用户地址
+    /// @return 总借款限额 (USD)
+    function getUserBorrowLimitInUSD(address user) public view returns (uint256) {
+        address[] memory assets = assetManager.getSupportedAssets();
+        uint256 totalBorrowLimit = 0;
+        for (uint256 i = 0; i < assets.length; i++) {
+            address asset = assets[i];
+            // 获取抵押品价值
+            uint256 depositAmount = userInfo[asset][user].depositAmount;
+            if (depositAmount > 0) {
+                // 获取资产配置
+                AssetManager.AssetConfig memory config = assetManager.getAssetConfig(asset);
+                AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[asset]);
+                (, int256 price, , , ) = priceFeed.latestRoundData();
+
+                uint256 depositValue = (depositAmount *
+                    uint256(price) *
+                    ADDITIONAL_FEED_PRECISION) / PRECISION;
+                uint256 collateralValue = (depositValue * config.collateralFactor) / PRECISION;
+
+                uint256 borrowLimitValue = (collateralValue * config.borrowFactor) / PRECISION;
+                totalBorrowLimit += borrowLimitValue;
+            }
+        }
+        return totalBorrowLimit;
+    }
+
+    /// @notice 获取用户最大可提取额度
+    /// @param user 用户地址
+    /// @param asset 资产地址
+    /// @return 最大可提取额度
+    function getMaxWithdrawAmount(address user, address asset) public view returns (uint256) {
+        UserInfo memory userAsset = userInfo[asset][user];
+
+        // 如果没有存款，直接返回0
+        if (userAsset.depositAmount == 0) return 0;
+
+        // 计算可提取的USD价值
+        uint256 availableUSD = getMaxWithdrawAmountInUSD(user);
+        if (availableUSD == 0) return 0;
 
         AssetManager.AssetConfig memory config = assetManager.getAssetConfig(asset);
-        uint256 borrowedValue = getUserBorrowUsdValue(user, asset);
-
-        if (borrowedValue >= collateralValue) return 0;
-
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[asset]);
-        (, int256 price, , , ) = priceFeed.staleCheckLatestRoundData();
+        (, int256 price, , , ) = priceFeed.latestRoundData();
 
-        uint256 availableValue = collateralValue - borrowedValue;
-        uint256 borrowLimit = (availableValue * config.borrowFactor) / 1e18;
-
-        return (borrowLimit * 1e18) / (uint256(price) * ADDITIONAL_FEED_PRECISION);
+        // 转换为资产数量
+        uint256 maxWithdraw = (availableUSD * PRECISION) / config.collateralFactor;
+        maxWithdraw = (maxWithdraw * PRECISION) / config.borrowFactor;
+        maxWithdraw = (maxWithdraw * PRECISION) / (uint256(price) * ADDITIONAL_FEED_PRECISION);
+        return maxWithdraw;
     }
 
-    function getBorrowValueUsd(
-        address asset,
-        uint256 borrowAmount
-    ) external view returns (uint256) {
-        if (borrowAmount == 0) return 0;
-        uint256 borrowValue = 0;
-        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[asset]);
-        (, int256 price, , , ) = priceFeed.staleCheckLatestRoundData();
-        uint256 assetValue = uint256(borrowAmount) * uint256(price);
-        borrowValue += assetValue;
-        return borrowValue;
+    /// @notice 获取用户最大可提取额度 (USD)
+    /// @param user 用户地址
+    /// @return 最大可提取额度 (USD)
+    function getMaxWithdrawAmountInUSD(address user) public view returns (uint256) {
+        (, uint256 currentBorrows) = getUserTotalValueInUSD(user);
+        uint256 borrowLimit = getUserBorrowLimitInUSD(user);
+
+        if (currentBorrows >= borrowLimit) return 0;
+        return borrowLimit - currentBorrows;
     }
 
+    /// @notice 获取资产的累积奖励
+    /// @param asset 资产地址
+    /// @return 累积奖励
     function getAccRewardPerShare(address asset) external view returns (uint256) {
         return accRewardPerShare[asset];
     }
 
+    /// @notice 获取每个区块的奖励
+    /// @return 每个区块的奖励
     function getRewardPerBlock() external view returns (uint256) {
         return rewardPerBlock;
+    }
+
+    /// @notice 获取资产信息
+    /// @param asset 资产地址
+    /// @return 资产信息
+    function getAssetInfo(address asset) external view returns (AssetInfo memory) {
+        return assetInfo[asset];
+    }
+
+    /// @notice 获取用户信息
+    /// @param asset 资产地址
+    /// @param user 用户地址
+    /// @return 用户信息
+    function getUserInfo(address asset, address user) external view returns (UserInfo memory) {
+        return userInfo[asset][user];
+    }
+
+    function getPendingRewards(address user, address asset) external view returns (uint256) {
+        UserInfo memory userAsset = userInfo[asset][user];
+        uint256 weightedAmount = TimeWeightedRewards.calculateWeightedAmount(
+            userAsset.depositAmount,
+            userAsset.lastUpdateTime,
+            block.timestamp
+        );
+        return (weightedAmount * accRewardPerShare[asset]) / PRECISION;
+    }
+
+    /// @notice 获取用户奖励债务
+    /// @param user 用户地址
+    /// @return totalRewardDebt 用户奖励债务
+    /// @dev 计算当前存款的累积利息 - 用户已领的奖励
+    function getUserRewardDebt(address user) external view returns (uint256 totalRewardDebt) {
+        address[] memory assets = assetManager.getSupportedAssets();
+
+        for (uint256 i = 0; i < assets.length; i++) {
+            address asset = assets[i];
+            AssetInfo memory assetInfoMemory = assetInfo[asset];
+            UserInfo memory userInfoMemory = userInfo[asset][user];
+
+            // 计算当前区块的累积奖励
+            uint256 currentAccRewardPerShare = accRewardPerShare[asset];
+            uint256 blocksSinceLastUpdate = block.timestamp - assetInfoMemory.lastUpdateTime;
+
+            if (blocksSinceLastUpdate > 0 && assetInfoMemory.totalDeposits > 0) {
+                currentAccRewardPerShare +=
+                    (blocksSinceLastUpdate * rewardPerBlock * 1e18) /
+                    assetInfoMemory.totalDeposits;
+            }
+
+            // 计算用户的奖励债务
+            totalRewardDebt +=
+                (userInfoMemory.depositAmount * currentAccRewardPerShare) /
+                PRECISION -
+                userInfoMemory.rewardDebt;
+        }
+
+        return totalRewardDebt;
+    }
+
+    /// @notice 获取所有支持的资产
+    function getSupportedAssets() external view returns (AssetInfo[] memory) {
+        address[] memory assets = assetManager.getSupportedAssets();
+        AssetInfo[] memory assetInfos = new AssetInfo[](assets.length);
+        for (uint256 i = 0; i < assets.length; i++) {
+            assetInfos[i] = assetInfo[assets[i]];
+        }
+        return assetInfos;
+    }
+
+    /// @notice 获取总价值
+    /// @return totalDeposits 总存款价值
+    /// @return totalBorrows 总借款价值
+    function getTotalValues() external view returns (uint256 totalDeposits, uint256 totalBorrows) {
+        address[] memory assets = assetManager.getSupportedAssets();
+        for (uint256 i = 0; i < assets.length; i++) {
+            address asset = assets[i];
+            totalDeposits += getValueUsdByAmount(asset, assetInfo[asset].totalDeposits);
+            totalBorrows += _getUserBorrowUsdValue(asset, assetInfo[asset].totalBorrows);
+        }
+    }
+
+    function getAssetPrice(address asset) public view returns (uint256) {
+        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[asset]);
+        (, int256 price, , , ) = priceFeed.latestRoundData();
+        if (price <= 0) return 0;
+        return uint256(price);
     }
 }

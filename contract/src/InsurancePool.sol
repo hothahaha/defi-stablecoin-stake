@@ -10,6 +10,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 /// @notice 管理清算保险金的收取和赔付
 /// @dev 实现了保费收取和赔付功能
 contract InsurancePool is Ownable, ReentrancyGuard {
+    using SafeERC20 for IERC20;
     // Constants
     uint256 public constant PREMIUM_RATE = 1e15; // 保费费率 (0.1%)
     uint256 public constant MAX_COVERAGE_RATIO = 8e17; // 最大赔付率 (80%)
@@ -38,7 +39,7 @@ contract InsurancePool is Ownable, ReentrancyGuard {
         if (amount == 0) revert InsurancePool__InvalidAmount();
 
         assetBalance[asset] += amount;
-        SafeERC20.safeTransferFrom(IERC20(asset), msg.sender, address(this), amount);
+        IERC20(asset).safeTransferFrom(msg.sender, address(this), amount);
         emit PremiumPaid(asset, msg.sender, amount);
     }
 
@@ -53,7 +54,7 @@ contract InsurancePool is Ownable, ReentrancyGuard {
         if (amount > maxClaim) revert InsurancePool__ExceedsMaxCoverage();
 
         assetBalance[asset] -= amount;
-        SafeERC20.safeTransfer(IERC20(asset), msg.sender, amount);
+        IERC20(asset).safeTransfer(msg.sender, amount);
 
         emit ClaimPaid(asset, msg.sender, amount);
     }

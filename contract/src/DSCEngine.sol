@@ -8,21 +8,18 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
 
-import {MantleStableCoin} from "./MantleStableCoin.sol";
-import {OracleLib} from "./libraries/OracleLib.sol";
+import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
 
 /**
- * @title MSCEngine
+ * @title DSCEngine
  * @author Galahad
  * @notice 这个合约管理稳定币的铸造和销毁
  * @dev 这个合约实现了超额抵押机制
  */
-contract MSCEngine is ReentrancyGuard, Pausable, Ownable {
-    // 使用 OracleLib 库处理价格源
-    using OracleLib for AggregatorV3Interface;
-
+contract DSCEngine is ReentrancyGuard, Pausable, Ownable {
+    using SafeERC20 for IERC20;
     struct UserAccount {
-        uint256 amountMSCMinted;
+        uint256 amountDSCMinted;
         mapping(address token => uint256 amount) collateralDeposited;
     }
 
@@ -38,7 +35,7 @@ contract MSCEngine is ReentrancyGuard, Pausable, Ownable {
     mapping(address token => address priceFeed) private s_priceFeeds;
     mapping(address user => UserAccount account) private s_userAccounts;
 
-    MantleStableCoin private immutable i_msc;
+    DecentralizedStableCoin private immutable i_msc;
     address[] private s_collateralTokens;
 
     // Events
@@ -49,29 +46,29 @@ contract MSCEngine is ReentrancyGuard, Pausable, Ownable {
         address token,
         uint256 amount
     );
-    event MSCMinted(address indexed user, uint256 amount);
-    event MSCBurned(address indexed user, uint256 amount);
+    event DSCMinted(address indexed user, uint256 amount);
+    event DSCBurned(address indexed user, uint256 amount);
 
     // Errors
-    error MSCEngine__NeedsMoreThanZero();
-    error MSCEngine__TokenNotAllowed();
-    error MSCEngine__BreaksHealthFactor();
-    error MSCEngine__MintFailed();
-    error MSCEngine__HealthFactorOk();
-    error MSCEngine__HealthFactorNotImproved();
-    error MSCEngine__TokenAddressesAndPriceFeedAddressesAmountsDontMatch();
+    error DSCEngine__NeedsMoreThanZero();
+    error DSCEngine__TokenNotAllowed();
+    error DSCEngine__BreaksHealthFactor();
+    error DSCEngine__MintFailed();
+    error DSCEngine__HealthFactorOk();
+    error DSCEngine__HealthFactorNotImproved();
+    error DSCEngine__TokenAddressesAndPriceFeedAddressesAmountsDontMatch();
 
     // Modifiers
     modifier moreThanZero(uint256 amount) {
         if (amount == 0) {
-            revert MSCEngine__NeedsMoreThanZero();
+            revert DSCEngine__NeedsMoreThanZero();
         }
         _;
     }
 
     modifier isAllowedToken(address token) {
         if (s_priceFeeds[token] == address(0)) {
-            revert MSCEngine__TokenNotAllowed();
+            revert DSCEngine__TokenNotAllowed();
         }
         _;
     }
@@ -79,7 +76,7 @@ contract MSCEngine is ReentrancyGuard, Pausable, Ownable {
     /// @notice 构造函数，初始化支持的抵押品和价格源
     /// @param tokenAddresses 支持的代币地址数组
     /// @param priceFeedAddresses 对应的价格源地址数组
-    /// @param mscAddress MSC代币地址
+    /// @param mscAddress DSC代币地址
     /// @dev 确保代币地址和价格源地址数组长度相同
     constructor(
         address[] memory tokenAddresses,
@@ -87,27 +84,27 @@ contract MSCEngine is ReentrancyGuard, Pausable, Ownable {
         address mscAddress
     ) Ownable(msg.sender) {
         if (tokenAddresses.length != priceFeedAddresses.length) {
-            revert MSCEngine__TokenAddressesAndPriceFeedAddressesAmountsDontMatch();
+            revert DSCEngine__TokenAddressesAndPriceFeedAddressesAmountsDontMatch();
         }
         for (uint256 i = 0; i < tokenAddresses.length; i++) {
             s_priceFeeds[tokenAddresses[i]] = priceFeedAddresses[i];
             s_collateralTokens.push(tokenAddresses[i]);
         }
-        i_msc = MantleStableCoin(mscAddress);
+        i_msc = DecentralizedStableCoin(mscAddress);
     }
 
-    /// @notice 存入抵押品并铸造 MSC
+    /// @notice 存入抵押品并铸造 DSC
     /// @param tokenCollateralAddress 抵押品地址
     /// @param amountCollateral 抵押数量
-    /// @param amountMSCToMint 要铸造的 MSC 数量
+    /// @param amountDSCToMint 要铸造的 DSC 数量
     /// @dev 检查健康因子确保抵押充足
-    function depositCollateralAndMintMSC(
+    function depositCollateralAndMintDSC(
         address tokenCollateralAddress,
         uint256 amountCollateral,
-        uint256 amountMSCToMint
+        uint256 amountDSCToMint
     ) external {
         depositCollateral(tokenCollateralAddress, amountCollateral);
-        mintMSC(amountMSCToMint);
+        mintDSC(amountDSCToMint);
     }
 
     /// @notice 存入抵押品
@@ -121,26 +118,25 @@ contract MSCEngine is ReentrancyGuard, Pausable, Ownable {
         s_userAccounts[msg.sender].collateralDeposited[tokenCollateralAddress] += amountCollateral;
         emit CollateralDeposited(msg.sender, tokenCollateralAddress, amountCollateral);
 
-        SafeERC20.safeTransferFrom(
-            IERC20(tokenCollateralAddress),
+        IERC20(tokenCollateralAddress).safeTransferFrom(
             msg.sender,
             address(this),
             amountCollateral
         );
     }
 
-    /// @notice 赎回抵押品并销毁 MSC
+    /// @notice 赎回抵押品并销毁 DSC
     /// @param tokenCollateralAddress 抵押品地址
     /// @param amountCollateral 赎回数量
-    /// @param amountMSCToBurn 要销毁的 MSC 数量
+    /// @param amountDSCToBurn 要销毁的 DSC 数量
     /// @dev 检查健康因子确保剩余抵押充足
-    function redeemCollateralForMSC(
+    function redeemCollateralForDSC(
         address tokenCollateralAddress,
         uint256 amountCollateral,
-        uint256 amountMSCToBurn
+        uint256 amountDSCToBurn
     ) external {
-        burnMSC(amountMSCToBurn);
         redeemCollateral(tokenCollateralAddress, amountCollateral);
+        burnDSC(amountDSCToBurn);
     }
 
     /// @notice 赎回抵押品
@@ -154,22 +150,22 @@ contract MSCEngine is ReentrancyGuard, Pausable, Ownable {
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
-    /// @notice 铸造 MSC
-    /// @param amountMSCToMint 铸造数量
-    function mintMSC(uint256 amountMSCToMint) public moreThanZero(amountMSCToMint) nonReentrant {
+    /// @notice 铸造 DSC
+    /// @param amountDSCToMint 铸造数量
+    function mintDSC(uint256 amountDSCToMint) public moreThanZero(amountDSCToMint) nonReentrant {
         unchecked {
-            s_userAccounts[msg.sender].amountMSCMinted += amountMSCToMint;
+            s_userAccounts[msg.sender].amountDSCMinted += amountDSCToMint;
         }
         _revertIfHealthFactorIsBroken(msg.sender);
-        bool minted = i_msc.mint(msg.sender, amountMSCToMint);
+        bool minted = i_msc.mint(msg.sender, amountDSCToMint);
         if (!minted) {
-            revert MSCEngine__MintFailed();
+            revert DSCEngine__MintFailed();
         }
-        emit MSCMinted(msg.sender, amountMSCToMint);
+        emit DSCMinted(msg.sender, amountDSCToMint);
     }
 
-    function burnMSC(uint256 amount) public moreThanZero(amount) {
-        _burnMSC(amount, msg.sender, msg.sender);
+    function burnDSC(uint256 amount) public moreThanZero(amount) {
+        _burnDSC(amount, msg.sender, msg.sender);
     }
 
     /// @notice 清算
@@ -184,34 +180,34 @@ contract MSCEngine is ReentrancyGuard, Pausable, Ownable {
     ) external moreThanZero(debtToCover) nonReentrant {
         uint256 startingUserHealthFactor = _healthFactor(user);
         if (startingUserHealthFactor >= MIN_HEALTH_FACTOR) {
-            revert MSCEngine__HealthFactorOk();
+            revert DSCEngine__HealthFactorOk();
         }
         uint256 tokenAmountFromDebtCovered = getTokenAmountFromUsd(collateral, debtToCover);
         uint256 bonusCollateral = (tokenAmountFromDebtCovered * LIQUIDATION_BONUS) /
             LIQUIDATION_PRECISION;
         uint256 totalCollateralToRedeem = tokenAmountFromDebtCovered + bonusCollateral;
         _redeemCollateral(user, msg.sender, collateral, totalCollateralToRedeem);
-        _burnMSC(debtToCover, user, msg.sender);
+        _burnDSC(debtToCover, user, msg.sender);
 
         uint256 endingUserHealthFactor = _healthFactor(user);
         if (endingUserHealthFactor <= startingUserHealthFactor) {
-            revert MSCEngine__HealthFactorNotImproved();
+            revert DSCEngine__HealthFactorNotImproved();
         }
         _revertIfHealthFactorIsBroken(msg.sender);
     }
 
-    /// @notice 销毁 MSC
-    /// @param amountMSCToBurn 销毁数量
+    /// @notice 销毁 DSC
+    /// @param amountDSCToBurn 销毁数量
     /// @param onBehalfOf 被销毁用户
     /// @param mscFrom 销毁来源
-    /// @dev 更新用户铸造的 MSC 数量并销毁 MSC
-    function _burnMSC(uint256 amountMSCToBurn, address onBehalfOf, address mscFrom) private {
+    /// @dev 更新用户铸造的 DSC 数量并销毁 DSC
+    function _burnDSC(uint256 amountDSCToBurn, address onBehalfOf, address mscFrom) private {
         unchecked {
-            s_userAccounts[onBehalfOf].amountMSCMinted -= amountMSCToBurn;
+            s_userAccounts[onBehalfOf].amountDSCMinted -= amountDSCToBurn;
         }
-        SafeERC20.safeTransferFrom(IERC20(address(i_msc)), mscFrom, address(this), amountMSCToBurn);
-        i_msc.burn(amountMSCToBurn);
-        emit MSCBurned(onBehalfOf, amountMSCToBurn);
+        IERC20(address(i_msc)).safeTransferFrom(mscFrom, address(this), amountDSCToBurn);
+        i_msc.burn(amountDSCToBurn);
+        emit DSCBurned(onBehalfOf, amountDSCToBurn);
     }
 
     /// @notice 赎回抵押品
@@ -230,17 +226,17 @@ contract MSCEngine is ReentrancyGuard, Pausable, Ownable {
             s_userAccounts[from].collateralDeposited[tokenCollateralAddress] -= amountCollateral;
         }
         emit CollateralRedeemed(from, to, tokenCollateralAddress, amountCollateral);
-        SafeERC20.safeTransfer(IERC20(tokenCollateralAddress), to, amountCollateral);
+        IERC20(tokenCollateralAddress).safeTransfer(to, amountCollateral);
     }
 
     /// @notice 获取用户账户信息
     /// @param user 用户地址
-    /// @return totalMSCMinted 用户铸造的 MSC 数量
+    /// @return totalDSCMinted 用户铸造的 DSC 数量
     /// @return collateralValueInUsd 用户账户抵押品总价值
     function _getAccountInformation(
         address user
-    ) private view returns (uint256 totalMSCMinted, uint256 collateralValueInUsd) {
-        totalMSCMinted = s_userAccounts[user].amountMSCMinted;
+    ) private view returns (uint256 totalDSCMinted, uint256 collateralValueInUsd) {
+        totalDSCMinted = s_userAccounts[user].amountDSCMinted;
         collateralValueInUsd = getAccountCollateralValue(user);
     }
 
@@ -248,22 +244,22 @@ contract MSCEngine is ReentrancyGuard, Pausable, Ownable {
     /// @param user 用户地址
     /// @return 健康因子
     function _healthFactor(address user) private view returns (uint256) {
-        (uint256 totalMSCMinted, uint256 collateralValueInUsd) = _getAccountInformation(user);
-        return _calculateHealthFactor(totalMSCMinted, collateralValueInUsd);
+        (uint256 totalDSCMinted, uint256 collateralValueInUsd) = _getAccountInformation(user);
+        return _calculateHealthFactor(totalDSCMinted, collateralValueInUsd);
     }
 
     /// @notice 计算健康因子
-    /// @param totalMSCMinted 用户铸造的 MSC 数量
+    /// @param totalDSCMinted 用户铸造的 DSC 数量
     /// @param collateralValueInUsd 用户账户抵押品总价值
     /// @return 健康因子
     function _calculateHealthFactor(
-        uint256 totalMSCMinted,
+        uint256 totalDSCMinted,
         uint256 collateralValueInUsd
     ) internal pure returns (uint256) {
-        if (totalMSCMinted == 0) return type(uint256).max;
+        if (totalDSCMinted == 0) return type(uint256).max;
         uint256 collateralAdjustedForThreshold = (collateralValueInUsd * LIQUIDATION_THRESHOLD) /
             LIQUIDATION_PRECISION;
-        return (collateralAdjustedForThreshold * PRECISION) / totalMSCMinted;
+        return (collateralAdjustedForThreshold * PRECISION) / totalDSCMinted;
     }
 
     /// @notice 检查健康因子是否破损
@@ -272,7 +268,7 @@ contract MSCEngine is ReentrancyGuard, Pausable, Ownable {
     function _revertIfHealthFactorIsBroken(address user) internal view {
         uint256 userHealthFactor = _healthFactor(user);
         if (userHealthFactor < MIN_HEALTH_FACTOR) {
-            revert MSCEngine__BreaksHealthFactor();
+            revert DSCEngine__BreaksHealthFactor();
         }
     }
 
@@ -296,7 +292,7 @@ contract MSCEngine is ReentrancyGuard, Pausable, Ownable {
     /// @return 抵押品价值
     function getUsdValue(address token, uint256 amount) public view returns (uint256) {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
-        (, int256 price, , , ) = priceFeed.staleCheckLatestRoundData();
+        (, int256 price, , , ) = priceFeed.latestRoundData();
         return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION;
     }
 
@@ -309,18 +305,18 @@ contract MSCEngine is ReentrancyGuard, Pausable, Ownable {
         uint256 usdAmountInWei
     ) public view returns (uint256) {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
-        (, int256 price, , , ) = priceFeed.staleCheckLatestRoundData();
+        (, int256 price, , , ) = priceFeed.latestRoundData();
         return (usdAmountInWei * PRECISION) / (uint256(price) * ADDITIONAL_FEED_PRECISION); // API3 价格使用8位精度
     }
 
     /// @notice 获取用户账户信息
     /// @param user 用户地址
-    /// @return totalMSCMinted 用户铸造的 MSC 数量
+    /// @return totalDSCMinted 用户铸造的 DSC 数量
     /// @return collateralValueInUsd 用户账户抵押品总价值
     function getAccountInformation(
         address user
-    ) external view returns (uint256 totalMSCMinted, uint256 collateralValueInUsd) {
-        (totalMSCMinted, collateralValueInUsd) = _getAccountInformation(user);
+    ) external view returns (uint256 totalDSCMinted, uint256 collateralValueInUsd) {
+        (totalDSCMinted, collateralValueInUsd) = _getAccountInformation(user);
     }
 
     /// @notice 获取用户健康因子

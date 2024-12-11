@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.24;
 
-import {Script} from "forge-std/Script.sol";
-import {MantleStableCoin} from "../src/MantleStableCoin.sol";
-import {MSCEngine} from "../src/MSCEngine.sol";
+import {Script, console} from "forge-std/Script.sol";
+import {DecentralizedStableCoin} from "../src/DecentralizedStableCoin.sol";
+import {DSCEngine} from "../src/DSCEngine.sol";
 import {AssetManager} from "../src/AssetManager.sol";
 import {InsurancePool} from "../src/InsurancePool.sol";
 import {LendingPool} from "../src/LendingPool.sol";
@@ -38,7 +38,7 @@ contract DeployScript is Script {
     }
 
     function getMantleTestnetConfig() internal view returns (NetworkConfig memory) {
-        address[] memory tokens = new address[](1);
+        address[] memory tokens = new address[](2);
         tokens[0] = 0xdEAddEaDdeadDEadDEADDEAddEADDEAddead1111; // ETH
         tokens[1] = 0x086a532583CdF6d9666c978Fa153B25816488CBb; // USDC
 
@@ -50,17 +50,16 @@ contract DeployScript is Script {
             NetworkConfig({
                 collateralTokens: tokens,
                 priceFeeds: proxies,
-                rewardPerBlock: 1e18,
+                rewardPerBlock: 1e15,
                 deployerKey: vm.envUint("PRIVATE_KEY")
             });
     }
 
     function getLocalConfig() internal returns (NetworkConfig memory) {
-        vm.startBroadcast();
-
+        vm.startBroadcast(DEFAULT_ANVIL_KEY);
         // 部署模拟代币
-        MockERC20 weth = new MockERC20("Wrapped ETH", "WETH");
-        MockERC20 usdc = new MockERC20("USD Coin", "USDC");
+        MockERC20 weth = new MockERC20("WETH", "ETH");
+        MockERC20 usdc = new MockERC20("USD Tether", "USDT");
 
         // 设置 API3 代理地址
         address[] memory tokens = new address[](2);
@@ -79,7 +78,7 @@ contract DeployScript is Script {
             NetworkConfig({
                 collateralTokens: tokens,
                 priceFeeds: proxies,
-                rewardPerBlock: 1e18,
+                rewardPerBlock: 1e15,
                 deployerKey: DEFAULT_ANVIL_KEY
             });
     }
@@ -90,7 +89,10 @@ contract DeployScript is Script {
         vm.startBroadcast(config.deployerKey);
 
         // 1. 部署稳定币
-        MantleStableCoin msc = new MantleStableCoin("Mantle Stable Coin", "MSC");
+        DecentralizedStableCoin dsc = new DecentralizedStableCoin(
+            "Decentralized Stable Coin",
+            "DSC"
+        );
 
         // 2. 部署资产管理器
         AssetManager assetManager = new AssetManager();
@@ -99,44 +101,70 @@ contract DeployScript is Script {
         InsurancePool insurancePool = new InsurancePool();
 
         // 4. 部署稳定币引擎
-        MSCEngine engine = new MSCEngine(config.collateralTokens, config.priceFeeds, address(msc));
+        DSCEngine engine = new DSCEngine(config.collateralTokens, config.priceFeeds, address(dsc));
 
         // 5. 部署借贷池
         LendingPool lendingPool = new LendingPool(
             address(insurancePool),
-            address(msc),
+            address(dsc),
             config.rewardPerBlock,
             address(assetManager),
             config.collateralTokens,
             config.priceFeeds
         );
 
+        assetManager.setLendingPool(address(lendingPool));
+
         // 6. 设置权限
-        msc.updateMinter(address(engine), true);
-        msc.updateMinter(address(lendingPool), true);
+        dsc.updateMinter(address(engine), true);
+        dsc.updateMinter(address(lendingPool), true);
+        assetManager.updateAddRole(address(lendingPool), true);
 
         // 7. 初始化资产配置
         for (uint i = 0; i < config.collateralTokens.length; i++) {
+            string memory symbol = i == 0 ? "ETH" : "USDT";
+            string memory name = i == 0 ? "WETH" : "USD Tether";
+            uint8 decimals = i == 0 ? 18 : 18;
+            string memory icon = i == 0
+                ? "https://assets.coingecko.com/coins/images/279/small/ethereum.png"
+                : "https://assets.coingecko.com/coins/images/325/small/Tether.png";
+
             AssetManager.AssetConfig memory assetConfig = AssetManager.AssetConfig({
                 isSupported: true,
                 collateralFactor: 75e16, // 75%
                 borrowFactor: 80e16, // 80%
-                liquidationFactor: 5e16 // 5%
+                symbol: symbol,
+                name: name,
+                decimals: decimals,
+                icon: icon
             });
             assetManager.addAsset(config.collateralTokens[i], assetConfig);
+            // 打印每个资产的添加
+            console.log("Added asset to AssetManager:", config.collateralTokens[i]);
         }
 
         vm.stopBroadcast();
 
         // 保存部署信息
-        string memory deploymentPath = string(
-            abi.encodePacked("deployments/", vm.toString(block.chainid), ".json")
-        );
-        string memory deployment = vm.serializeAddress("deployment", "msc", address(msc));
-        deployment = vm.serializeAddress("deployment", "engine", address(engine));
-        deployment = vm.serializeAddress("deployment", "assetManager", address(assetManager));
-        deployment = vm.serializeAddress("deployment", "insurancePool", address(insurancePool));
-        deployment = vm.serializeAddress("deployment", "lendingPool", address(lendingPool));
-        vm.writeJson(deployment, deploymentPath);
+        console.log("Deployment Addresses:");
+        console.log("DSC:", address(dsc));
+        console.log("Engine:", address(engine));
+        console.log("AssetManager:", address(assetManager));
+        console.log("InsurancePool:", address(insurancePool));
+        console.log("LendingPool:", address(lendingPool));
+
+        // 验证支持的资产
+        address[] memory supportedAssets = assetManager.getSupportedAssets();
+        console.log("\nSupported Assets:");
+        for (uint i = 0; i < supportedAssets.length; i++) {
+            console.log(string.concat("Asset ", vm.toString(i), ":"), supportedAssets[i]);
+
+            // 获取并打印资产配置
+            AssetManager.AssetConfig memory config1 = assetManager.getAssetConfig(
+                supportedAssets[i]
+            );
+            console.log("Symbol:", config1.symbol);
+            console.log("Name:", config1.name);
+        }
     }
 }

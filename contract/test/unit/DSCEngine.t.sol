@@ -3,16 +3,16 @@ pragma solidity 0.8.24;
 
 import {Test, console} from "forge-std/Test.sol";
 import {DeployScript} from "../../script/Deploy.s.sol";
-import {MSCEngine} from "../../src/MSCEngine.sol";
-import {MantleStableCoin} from "../../src/MantleStableCoin.sol";
+import {DSCEngine} from "../../src/DSCEngine.sol";
+import {DecentralizedStableCoin} from "../../src/DecentralizedStableCoin.sol";
 import {API3Feed} from "../../src/price-feeds/API3Feed.sol";
 import {MockERC20} from "../../src/mocks/MockERC20.sol";
 import {MockV3Aggregator} from "../mocks/MockV3Aggregator.sol";
 
-contract MSCEngineTest is Test {
+contract DSCEngineTest is Test {
     DeployScript deployer;
-    MSCEngine engine;
-    MantleStableCoin msc;
+    DSCEngine engine;
+    DecentralizedStableCoin msc;
     MockERC20 weth;
     MockERC20 usdc;
     address ethUsdPriceFeed;
@@ -43,9 +43,9 @@ contract MSCEngineTest is Test {
 
         deployerKey = networkConfig.deployerKey;
 
-        // 部署 MSC 和 Engine
-        msc = new MantleStableCoin("Mantle Stable Coin", "MSC");
-        engine = new MSCEngine(collateralTokens, priceFeeds, address(msc));
+        // 部署 DSC 和 Engine
+        msc = new DecentralizedStableCoin("Mantle Stable Coin", "DSC");
+        engine = new DSCEngine(collateralTokens, priceFeeds, address(msc));
 
         // 设置权限
         msc.updateMinter(address(engine), true);
@@ -81,7 +81,7 @@ contract MSCEngineTest is Test {
     function testRevertsIfCollateralZero() public {
         vm.startPrank(USER);
         weth.approve(address(engine), AMOUNT_COLLATERAL);
-        vm.expectRevert(MSCEngine.MSCEngine__NeedsMoreThanZero.selector);
+        vm.expectRevert(DSCEngine.DSCEngine__NeedsMoreThanZero.selector);
         engine.depositCollateral(address(weth), 0);
         vm.stopPrank();
     }
@@ -89,7 +89,7 @@ contract MSCEngineTest is Test {
     function testRevertsWithUnapprovedCollateral() public {
         MockERC20 randomToken = new MockERC20("Random", "RND");
         vm.startPrank(USER);
-        vm.expectRevert(MSCEngine.MSCEngine__TokenNotAllowed.selector);
+        vm.expectRevert(DSCEngine.DSCEngine__TokenNotAllowed.selector);
         engine.depositCollateral(address(randomToken), AMOUNT_COLLATERAL);
         vm.stopPrank();
     }
@@ -103,9 +103,9 @@ contract MSCEngineTest is Test {
     }
 
     function testCanDepositCollateralAndGetAccountInfo() public depositedCollateral {
-        (uint256 totalMSCMinted, uint256 collateralValueInUsd) = engine.getAccountInformation(USER);
+        (uint256 totalDSCMinted, uint256 collateralValueInUsd) = engine.getAccountInformation(USER);
         uint256 expectedCollateralValueInUsd = engine.getUsdValue(address(weth), AMOUNT_COLLATERAL);
-        assertEq(totalMSCMinted, 0);
+        assertEq(totalDSCMinted, 0);
         assertEq(collateralValueInUsd, expectedCollateralValueInUsd);
     }
 
@@ -114,7 +114,7 @@ contract MSCEngineTest is Test {
         weth.approve(address(engine), AMOUNT_COLLATERAL);
 
         vm.expectEmit(true, true, true, true, address(engine));
-        emit MSCEngine.CollateralDeposited(USER, address(weth), AMOUNT_COLLATERAL);
+        emit DSCEngine.CollateralDeposited(USER, address(weth), AMOUNT_COLLATERAL);
 
         engine.depositCollateral(address(weth), AMOUNT_COLLATERAL);
         vm.stopPrank();
@@ -135,7 +135,7 @@ contract MSCEngineTest is Test {
 
     function testRevertRedeemCollateralIfAmountZero() public {
         vm.startPrank(USER);
-        vm.expectRevert(MSCEngine.MSCEngine__NeedsMoreThanZero.selector);
+        vm.expectRevert(DSCEngine.DSCEngine__NeedsMoreThanZero.selector);
         engine.redeemCollateral(address(weth), 0);
         vm.stopPrank();
     }
@@ -146,8 +146,8 @@ contract MSCEngineTest is Test {
 
     function testRevertsIfMintAmountIsZero() public depositedCollateral {
         vm.startPrank(USER);
-        vm.expectRevert(MSCEngine.MSCEngine__NeedsMoreThanZero.selector);
-        engine.mintMSC(0);
+        vm.expectRevert(DSCEngine.DSCEngine__NeedsMoreThanZero.selector);
+        engine.mintDSC(0);
         vm.stopPrank();
     }
 
@@ -155,8 +155,8 @@ contract MSCEngineTest is Test {
         vm.startPrank(USER);
         uint256 collateralValueInUsd = engine.getUsdValue(address(weth), AMOUNT_COLLATERAL);
         uint256 amountToMint = (collateralValueInUsd * 100) / LIQUIDATION_THRESHOLD + 1;
-        vm.expectRevert(MSCEngine.MSCEngine__BreaksHealthFactor.selector);
-        engine.mintMSC(amountToMint);
+        vm.expectRevert(DSCEngine.DSCEngine__BreaksHealthFactor.selector);
+        engine.mintDSC(amountToMint);
         vm.stopPrank();
     }
 
@@ -165,9 +165,9 @@ contract MSCEngineTest is Test {
         uint256 amountToMint = 100e18;
 
         vm.expectEmit(true, true, true, true, address(engine));
-        emit MSCEngine.MSCMinted(USER, amountToMint);
+        emit DSCEngine.DSCMinted(USER, amountToMint);
 
-        engine.mintMSC(amountToMint);
+        engine.mintDSC(amountToMint);
         vm.stopPrank();
     }
 
@@ -179,11 +179,11 @@ contract MSCEngineTest is Test {
         vm.startPrank(USER);
         uint256 collateralValueInUsd = engine.getUsdValue(address(weth), AMOUNT_COLLATERAL);
         uint256 halfCollateralValueInUsd = collateralValueInUsd / 2;
-        engine.mintMSC(halfCollateralValueInUsd);
+        engine.mintDSC(halfCollateralValueInUsd);
         vm.stopPrank();
 
         vm.startPrank(LIQUIDATOR);
-        vm.expectRevert(MSCEngine.MSCEngine__HealthFactorOk.selector);
+        vm.expectRevert(DSCEngine.DSCEngine__HealthFactorOk.selector);
         engine.liquidate(address(weth), USER, halfCollateralValueInUsd);
         vm.stopPrank();
     }
@@ -195,7 +195,7 @@ contract MSCEngineTest is Test {
         engine.depositCollateral(address(weth), AMOUNT_COLLATERAL + (AMOUNT_COLLATERAL * 10) / 100); // 10% 的额外抵押
         uint256 collateralValueInUsd = engine.getUsdValue(address(weth), AMOUNT_COLLATERAL);
         uint256 amountToMint = (collateralValueInUsd * 50) / 100; // 50% 抵押率
-        engine.mintMSC(amountToMint);
+        engine.mintDSC(amountToMint);
         vm.stopPrank();
 
         // 价格下跌 50%
@@ -228,7 +228,7 @@ contract MSCEngineTest is Test {
 
     function testRevertLiquidateIfAmountZero() public {
         vm.startPrank(LIQUIDATOR);
-        vm.expectRevert(MSCEngine.MSCEngine__NeedsMoreThanZero.selector);
+        vm.expectRevert(DSCEngine.DSCEngine__NeedsMoreThanZero.selector);
         engine.liquidate(address(weth), USER, 0);
         vm.stopPrank();
     }
@@ -236,8 +236,8 @@ contract MSCEngineTest is Test {
     // 添加健康因子计算测试
     function testHealthFactorCalculation() public depositedCollateral {
         vm.startPrank(USER);
-        uint256 amountToMint = 1000e18; // 铸造1000 MSC
-        engine.mintMSC(amountToMint);
+        uint256 amountToMint = 1000e18; // 铸造1000 DSC
+        engine.mintDSC(amountToMint);
 
         uint256 healthFactor = engine.getHealthFactor(USER);
         // 验证健康因子在预期范围内
