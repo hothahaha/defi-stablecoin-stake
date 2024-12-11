@@ -1,5 +1,6 @@
 [profile.default]
 src = "src"
+test = "test"
 out = "out"
 libs = ["lib"]
 remappings = [
@@ -8,6 +9,5 @@ remappings = [
     "@api3/=node_modules/@api3/"
 ]
 ffi = true
-solc = "0.8.24"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

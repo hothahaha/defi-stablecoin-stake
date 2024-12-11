@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.24;
+pragma solidity 0.8.27;
 
 /**
  * @title MockV3Aggregator
@@ -43,7 +43,9 @@ contract MockV3Aggregator {
         getStartedAt[latestRound] = _startedAt;
     }
 
-    function getRoundData(uint80 _roundId)
+    function getRoundData(
+        uint80 _roundId
+    )
         external
         view
         returns (
@@ -74,13 +76,7 @@ contract MockV3Aggregator {
             uint80 answeredInRound
         )
     {
-        return (
-            latestRound,
-            latestAnswer,
-            getStartedAt[latestRound],
-            latestTimestamp,
-            latestRound
-        );
+        return (latestRound, latestAnswer, getStartedAt[latestRound], latestTimestamp, latestRound);
     }
 
     function description() external pure returns (string memory) {
@@ -90,4 +86,4 @@ contract MockV3Aggregator {
     function version() external pure returns (uint256) {
         return 0;
     }
-} 
+}

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.24;
+pragma solidity 0.8.27;
 
 /// @title 时间加权收益计算库
 /// @notice 计算基于存款时间的加权收益

@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.24;
+pragma solidity 0.8.27;
 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {AggregatorV3Interface} from "@chainlink/contracts/src/v0.8/shared/interfaces/AggregatorV3Interface.sol";
+import {Api3ReaderProxyV1} from "@api3/contracts/api3-server-v1/proxies/Api3ReaderProxyV1.sol";
 
 import {InterestRateModel} from "./libraries/InterestRateModel.sol";
 import {TimeWeightedRewards} from "./libraries/TimeWeightedRewards.sol";
 import {InsurancePool} from "./InsurancePool.sol";
-import {API3Feed} from "./price-feeds/API3Feed.sol";
 import {AssetManager} from "./AssetManager.sol";
 import {DecentralizedStableCoin} from "./DecentralizedStableCoin.sol";
 
@@ -259,7 +258,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
         }
 
         // 获取资产价格并计算可借款价值
-        (, int256 price, , , ) = AggregatorV3Interface(s_priceFeeds[asset]).latestRoundData();
+        (, int256 price, , , ) = Api3ReaderProxyV1(s_priceFeeds[asset]).latestRoundData();
         uint256 currentBorrowValueUSD = (user.borrowAmount *
             uint256(price) *
             ADDITIONAL_FEED_PRECISION) / PRECISION;
@@ -491,7 +490,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
 
             if (curUserInfo.depositAmount > 0) {
                 AssetManager.AssetConfig memory config = assetManager.getAssetConfig(asset);
-                AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[asset]);
+                Api3ReaderProxyV1 priceFeed = Api3ReaderProxyV1(s_priceFeeds[asset]);
                 (, int256 price, , , ) = priceFeed.latestRoundData();
                 uint256 assetValue = (uint256(curUserInfo.depositAmount) *
                     uint256(price) *
@@ -562,22 +561,6 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
         return (principal * (currentIndex - userIndex)) / userIndex;
     }
 
-    function _updateBorrowIndex(address asset) internal {
-        AssetInfo storage assetData = assetInfo[asset];
-        uint256 timeElapsed = block.timestamp - assetData.lastUpdateTime;
-
-        if (timeElapsed > 0 && assetData.totalBorrows > 0 && assetData.borrowRate > 0) {
-            // 计算新的借款指数
-            uint256 borrowInterest = InterestRateModel.calculateInterest(
-                assetData.totalBorrows,
-                assetData.borrowRate,
-                timeElapsed
-            );
-            uint256 borrowIndexDelta = (borrowInterest * PRECISION) / assetData.totalBorrows;
-            assetData.borrowIndex += borrowIndexDelta;
-        }
-    }
-
     /// @notice 获取用户借款数量
     /// @param user 用户地址
     /// @param asset 资产地址
@@ -594,7 +577,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
         address asset,
         uint256 borrowAmount
     ) public view returns (uint256) {
-        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[asset]);
+        Api3ReaderProxyV1 priceFeed = Api3ReaderProxyV1(s_priceFeeds[asset]);
         (, int256 price, , , ) = priceFeed.latestRoundData();
         uint256 assetValue = (
             (uint256(borrowAmount) * uint256(price) * ADDITIONAL_FEED_PRECISION)
@@ -618,7 +601,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
         if (borrowedValue >= borrowLimit) return 0;
 
         // 获取资产配置和价格
-        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[asset]);
+        Api3ReaderProxyV1 priceFeed = Api3ReaderProxyV1(s_priceFeeds[asset]);
         (, int256 price, , , ) = priceFeed.latestRoundData();
 
         uint256 availableValue = borrowLimit - borrowedValue;
@@ -633,7 +616,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
     function getValueUsdByAmount(address asset, uint256 amount) public view returns (uint256) {
         if (amount == 0) return 0;
         uint256 value = 0;
-        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[asset]);
+        Api3ReaderProxyV1 priceFeed = Api3ReaderProxyV1(s_priceFeeds[asset]);
         (, int256 price, , , ) = priceFeed.latestRoundData();
         uint256 assetValue = (uint256(amount) * uint256(price) * ADDITIONAL_FEED_PRECISION) /
             PRECISION;
@@ -674,7 +657,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
             if (depositAmount > 0) {
                 // 获取资产配置
                 AssetManager.AssetConfig memory config = assetManager.getAssetConfig(asset);
-                AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[asset]);
+                Api3ReaderProxyV1 priceFeed = Api3ReaderProxyV1(s_priceFeeds[asset]);
                 (, int256 price, , , ) = priceFeed.latestRoundData();
 
                 uint256 depositValue = (depositAmount *
@@ -704,7 +687,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
         if (availableUSD == 0) return 0;
 
         AssetManager.AssetConfig memory config = assetManager.getAssetConfig(asset);
-        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[asset]);
+        Api3ReaderProxyV1 priceFeed = Api3ReaderProxyV1(s_priceFeeds[asset]);
         (, int256 price, , , ) = priceFeed.latestRoundData();
 
         // 转换为资产数量
@@ -795,16 +778,6 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
         return totalRewardDebt;
     }
 
-    /// @notice 获取所有支持的资产
-    function getSupportedAssets() external view returns (AssetInfo[] memory) {
-        address[] memory assets = assetManager.getSupportedAssets();
-        AssetInfo[] memory assetInfos = new AssetInfo[](assets.length);
-        for (uint256 i = 0; i < assets.length; i++) {
-            assetInfos[i] = assetInfo[assets[i]];
-        }
-        return assetInfos;
-    }
-
     /// @notice 获取总价值
     /// @return totalDeposits 总存款价值
     /// @return totalBorrows 总借款价值
@@ -818,7 +791,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
     }
 
     function getAssetPrice(address asset) public view returns (uint256) {
-        AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[asset]);
+        Api3ReaderProxyV1 priceFeed = Api3ReaderProxyV1(s_priceFeeds[asset]);
         (, int256 price, , , ) = priceFeed.latestRoundData();
         if (price <= 0) return 0;
         return uint256(price);
