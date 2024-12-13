@@ -1,52 +1,57 @@
-import { useReadContract } from "wagmi";
-import { formatUnits, parseUnits } from "viem";
-import { lendingPoolConfig } from "@/lib/contract-config";
-import { COLLATERAL_TOKEN_ADDRESS } from "@/lib/constants";
+import { useState, useEffect } from "react";
+import { formatUnits, parseUnits } from "ethers";
+import { getLendingPoolContract, getSigner } from "@/lib/contract-utils";
+import { COLLATERAL_TOKEN_ADDRESS } from "@/lib/contract-config";
 import { useAssetPrice } from "./use-asset-price";
 
-type UserInfo = readonly [
-    depositAmount: bigint,
-    borrowAmount: bigint,
-    healthFactor: bigint,
-    lastUpdateTime: bigint
-];
-
 export function useUserPosition(address?: string) {
-    const { data: userInfo } = useReadContract<
-        typeof lendingPoolConfig.abi,
-        "getUserInfo",
-        UserInfo
-    >({
-        address: lendingPoolConfig.address,
-        abi: lendingPoolConfig.abi,
-        functionName: "getUserInfo",
-        args: address ? [address as `0x${string}`] : undefined,
+    const [userInfo, setUserInfo] = useState<{
+        depositAmount: bigint;
+        borrowAmount: bigint;
+        healthFactor: bigint;
+        lastUpdateTime: bigint;
+    }>({
+        depositAmount: 0n,
+        borrowAmount: 0n,
+        healthFactor: 0n,
+        lastUpdateTime: 0n,
     });
 
     const { price: collateralPrice } = useAssetPrice(COLLATERAL_TOKEN_ADDRESS);
 
-    if (!userInfo) {
-        return {
-            depositAmount: 0n,
-            borrowAmount: 0n,
-            healthFactor: 0n,
-            lastUpdateTime: 0n,
-            depositValue: "0",
-            borrowValue: "0",
-        };
-    }
+    useEffect(() => {
+        async function fetchUserInfo() {
+            if (!address) return;
+            const signer = await getSigner();
+            if (!signer) return;
+
+            const contract = getLendingPoolContract(signer);
+            if (!contract) return;
+
+            try {
+                const info = await contract.getUserInfo(address);
+                setUserInfo({
+                    depositAmount: info[0],
+                    borrowAmount: info[1],
+                    healthFactor: info[2],
+                    lastUpdateTime: info[3],
+                });
+            } catch (error) {
+                console.error("Failed to fetch user info:", error);
+            }
+        }
+
+        fetchUserInfo();
+    }, [address]);
 
     return {
-        depositAmount: userInfo[0],
-        borrowAmount: userInfo[1],
-        healthFactor: userInfo[2],
-        lastUpdateTime: userInfo[3],
+        ...userInfo,
         depositValue: formatUnits(
-            userInfo[0] * BigInt(parseUnits(collateralPrice?.toString() ?? "0", 18)),
+            userInfo.depositAmount * BigInt(parseUnits(collateralPrice?.toString() ?? "0", 18)),
             36
         ),
         borrowValue: formatUnits(
-            userInfo[1] * BigInt(parseUnits(collateralPrice?.toString() ?? "0", 18)),
+            userInfo.borrowAmount * BigInt(parseUnits(collateralPrice?.toString() ?? "0", 18)),
             36
         ),
     };
