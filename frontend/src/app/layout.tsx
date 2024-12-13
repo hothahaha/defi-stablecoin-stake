@@ -9,8 +9,8 @@ import "./globals.css";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-    title: "Mantle DeFi",
-    description: "Mantle DeFi Lending Protocol",
+    title: "Pure DeFi",
+    description: "Pure DeFi Lending Protocol",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

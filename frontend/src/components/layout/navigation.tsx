@@ -18,7 +18,7 @@ export function Navigation() {
         <header className="sticky top-0 z-40 w-full border-b bg-background">
             <div className="container flex h-16 items-center justify-between">
                 <div className="flex items-center gap-6">
-                    <div className="font-bold text-primary">Mantle DeFi</div>
+                    <div className="font-bold text-primary">Pure DeFi</div>
 
                     <nav className="flex items-center gap-4">
                         {navigation.map((item) => (

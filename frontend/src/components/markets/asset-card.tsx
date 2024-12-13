@@ -58,7 +58,7 @@ export function AssetCard({ asset, type, onSupply, onBorrow, refreshKey = 0 }: A
                     </div>
 
                     <div className="text-right">
-                        ${Number(formatUnits(asset.price, 8)).toFixed(2)}
+                        ${Number(formatUnits(asset.price, 18)).toFixed(2)}
                         <p className="text-sm text-muted-foreground">
                             {type === "supply"
                                 ? `Supply APY: ${Number(formatUnits(rates.depositRate, 16)).toFixed(
