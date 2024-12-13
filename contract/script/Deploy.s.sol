@@ -20,9 +20,9 @@ contract DeployScript is Script {
         uint256 deployerKey;
     }
 
-    uint8 public constant DECIMALS = 8;
-    int256 public constant ETH_USD_PRICE = 2000e8;
-    int256 public constant USDC_USD_PRICE = 1e8;
+    uint8 public constant DECIMALS = 18;
+    int256 public constant ETH_USD_PRICE = 2000e18;
+    int256 public constant USDC_USD_PRICE = 1e18;
     uint256 public constant DEFAULT_ANVIL_KEY =
         0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80;
 
