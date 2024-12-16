@@ -9,9 +9,11 @@ import { UpdateAssetModal } from "@/components/asset-management/update-asset-mod
 import { Asset } from "@/types";
 import { useAssets } from "@/hooks/use-assets";
 import { getLendingPoolContract, getSigner } from "@/lib/contract-utils";
+import { useAccount } from "wagmi";
 
 export default function AssetManagementPage() {
-    const assets = useAssets();
+    const { isConnected } = useAccount();
+    const { assets, refetch } = useAssets();
     const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [isUpdateModalOpen, setIsUpdateModalOpen] = useState(false);
@@ -21,6 +23,7 @@ export default function AssetManagementPage() {
     // Fetch USD values for each asset
     useEffect(() => {
         async function fetchAssetValues() {
+            if (!isConnected) return;
             const signer = await getSigner();
             if (!signer) return;
 
@@ -40,16 +43,17 @@ export default function AssetManagementPage() {
                 const valuesMap = Object.fromEntries(values);
                 setAssetValues(valuesMap);
             } catch (error) {
-                console.error("Failed to fetch asset values:", error);
+                console.warn("Failed to fetch asset values:", error);
             }
         }
 
         if (assets.length > 0) {
             fetchAssetValues();
         }
-    }, [assets, refreshKey]);
+    }, [assets, refreshKey, isConnected]);
 
-    const handleRefresh = () => {
+    const handleRefresh = async () => {
+        await refetch();
         setRefreshKey((prev) => prev + 1);
     };
 

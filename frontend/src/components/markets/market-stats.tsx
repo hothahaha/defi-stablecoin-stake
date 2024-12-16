@@ -4,15 +4,19 @@ import { useEffect, useState } from "react";
 import { StatCard } from "@/components/ui/stat-card";
 import { getLendingPoolContract, getSigner } from "@/lib/contract-utils";
 import { formatUnits } from "ethers";
+import { useAccount } from "wagmi";
 
 interface MarketStatsProps {
     refreshKey?: number;
 }
 
 export function MarketStats({ refreshKey = 0 }: MarketStatsProps) {
+    const { isConnected } = useAccount();
     const [totalValues, setTotalValues] = useState<[bigint, bigint]>([0n, 0n]);
 
     const fetchTotalValues = async () => {
+        if (!isConnected) return;
+
         const signer = await getSigner();
         if (!signer) return;
 
@@ -23,13 +27,14 @@ export function MarketStats({ refreshKey = 0 }: MarketStatsProps) {
             const [deposits, borrows] = await contract.getTotalValues();
             setTotalValues([deposits, borrows]);
         } catch (error) {
-            console.error("Failed to fetch total values:", error);
+            console.warn("Failed to fetch total values:", error);
         }
     };
 
+    // 监听钱包连接状态和刷新键
     useEffect(() => {
         fetchTotalValues();
-    }, [refreshKey]);
+    }, [refreshKey, isConnected]);
 
     const [totalDeposits, totalBorrows] = totalValues;
 
@@ -45,7 +50,9 @@ export function MarketStats({ refreshKey = 0 }: MarketStatsProps) {
             />
             <StatCard
                 title="Total Liquidity"
-                value={`$${(Number(formatUnits(totalDeposits, 18)) - Number(formatUnits(totalBorrows, 18))).toLocaleString()}`}
+                value={`$${(
+                    Number(formatUnits(totalDeposits, 18)) - Number(formatUnits(totalBorrows, 18))
+                ).toLocaleString()}`}
             />
         </div>
     );

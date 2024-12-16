@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { getAssetManagerContract, getSigner } from "@/lib/contract-utils";
 import { Asset } from "@/types";
 import { parseUnits, formatUnits } from "ethers";
+import { useAssets } from "@/hooks/use-assets";
 
 interface UpdateAssetModalProps {
     isOpen: boolean;
@@ -16,6 +17,7 @@ interface UpdateAssetModalProps {
 
 export function UpdateAssetModal({ isOpen, onClose, asset, onSuccess }: UpdateAssetModalProps) {
     const [isWaitingTx, setIsWaitingTx] = useState(false);
+    const { refetch } = useAssets();
     const [formData, setFormData] = useState({
         collateralFactor: "0",
         borrowFactor: "0",
@@ -62,6 +64,7 @@ export function UpdateAssetModal({ isOpen, onClose, asset, onSuccess }: UpdateAs
             });
 
             await tx.wait();
+            await refetch();
             onSuccess?.();
             onClose();
         } catch (error) {

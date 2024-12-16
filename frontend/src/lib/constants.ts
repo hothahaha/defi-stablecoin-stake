@@ -1,11 +1,15 @@
 import { useEffect, useState } from "react";
 import { getAssetManagerContract, getSigner } from "./contract-utils";
+import { useAccount } from "wagmi";
 
 export function useSupportedAssets() {
     const [supportedAssets, setSupportedAssets] = useState<`0x${string}`[]>([]);
+    const { isConnected } = useAccount();
 
     useEffect(() => {
         async function fetchSupportedAssets() {
+            if (!isConnected) return;
+
             const signer = await getSigner();
             if (!signer) return;
 
@@ -21,7 +25,7 @@ export function useSupportedAssets() {
         }
 
         fetchSupportedAssets();
-    }, []);
+    }, [isConnected]);
 
     return supportedAssets;
 }

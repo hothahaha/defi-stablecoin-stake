@@ -74,29 +74,36 @@ const ERC20_ABI = [
 export function getProvider() {
     if (typeof window === "undefined") return null;
     if (!window.ethereum) {
-        throw new Error("No wallet found");
+        console.warn("No wallet found");
+        return null;
     }
     return new ethers.BrowserProvider(window.ethereum);
 }
 
 export async function getSigner() {
-    const provider = getProvider();
-    if (!provider) return null;
-    const signer = await provider.getSigner();
-    if (!signer) {
-        throw new Error("Failed to get signer");
+    try {
+        const provider = getProvider();
+        if (!provider) return null;
+        return await provider.getSigner();
+    } catch (error) {
+        console.warn("Failed to get signer:", error);
+        return null;
     }
-    return signer;
 }
 
 export function getLendingPoolContract(signerOrProvider?: ethers.Signer | ethers.Provider) {
-    const provider = signerOrProvider || getProvider();
-    if (!provider) return null;
-    return new ethers.Contract(
-        lendingPoolConfig.address,
-        lendingPoolConfig.abi, // Use explicitly defined ABI
-        provider
-    );
+    try {
+        const provider = signerOrProvider || getProvider();
+        if (!provider) return null;
+        return new ethers.Contract(
+            lendingPoolConfig.address,
+            lendingPoolConfig.abi,
+            provider
+        );
+    } catch (error) {
+        console.warn("Failed to get lending pool contract:", error);
+        return null;
+    }
 }
 
 export function getAssetManagerContract(signerOrProvider?: ethers.Signer | ethers.Provider) {
