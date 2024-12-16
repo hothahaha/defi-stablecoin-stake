@@ -19,7 +19,7 @@ contract AssetManager is Ownable {
     }
 
     // State variables
-    mapping(address => bool) public adders; // 创建权限映射
+    mapping(address => bool) public granters; // 创建权限映射
     mapping(address => AssetConfig) private s_assetConfigs; // 资产配置映射
     address[] private s_supportedAssets; // 支持的资产列表
     mapping(address => uint256) private assetReserves; // 添加储备金映射
@@ -30,7 +30,7 @@ contract AssetManager is Ownable {
     event AssetUpdated(address indexed asset, AssetConfig config);
     event AssetRemoved(address indexed asset);
     event ReservesAdded(address indexed asset, uint256 amount);
-    event AdderStatusChanged(address indexed adder, bool status);
+    event AdderStatusChanged(address indexed granter, bool status);
 
     // Errors
     error AssetManager__InvalidAsset();
@@ -39,7 +39,6 @@ contract AssetManager is Ownable {
     error AssetManager__InvalidFactor();
     error AssetManager__InvalidCaller();
     error AssetManager__InvalidAmount();
-    error AssetManager__InvalidAdder(address adder);
 
     /// @notice 构造函数
     constructor() Ownable(msg.sender) {}
@@ -58,8 +57,8 @@ contract AssetManager is Ownable {
     /// @param asset 资产地址
     /// @param config 资产配置
     function addAsset(address asset, AssetConfig memory config) external {
-        if (!adders[msg.sender] && msg.sender != owner()) {
-            revert AssetManager__InvalidAdder(msg.sender);
+        if (!granters[msg.sender] && msg.sender != owner()) {
+            revert AssetManager__InvalidCaller();
         }
         if (asset == address(0)) revert AssetManager__InvalidAsset();
         if (s_assetConfigs[asset].isSupported) revert AssetManager__AssetAlreadySupported();
@@ -74,7 +73,10 @@ contract AssetManager is Ownable {
     /// @notice 更新资产配置
     /// @param asset 资产地址
     /// @param config 新的资产配置
-    function updateAsset(address asset, AssetConfig memory config) external onlyOwner {
+    function updateAsset(address asset, AssetConfig memory config) external {
+        if (!granters[msg.sender] && msg.sender != owner()) {
+            revert AssetManager__InvalidCaller();
+        }
         if (!s_assetConfigs[asset].isSupported) revert AssetManager__AssetNotSupported();
         if (config.collateralFactor > 1e18) revert AssetManager__InvalidFactor();
         if (config.borrowFactor > 1e18) revert AssetManager__InvalidFactor();
@@ -98,15 +100,15 @@ contract AssetManager is Ownable {
     }
 
     /// @notice 更新创建权限
-    /// @param adder 创建者地址
+    /// @param granter 创建者地址
     /// @param status 权限状态
-    function updateAddRole(address adder, bool status) external onlyOwner {
-        if (adder == address(0)) {
-            revert AssetManager__InvalidAdder(adder);
+    function updateAddRole(address granter, bool status) external onlyOwner {
+        if (granter == address(0)) {
+            revert AssetManager__InvalidCaller();
         }
 
-        adders[adder] = status;
-        emit AdderStatusChanged(adder, status);
+        granters[granter] = status;
+        emit AdderStatusChanged(granter, status);
     }
 
     /// @notice 获取资产配置

@@ -26,10 +26,9 @@ contract LendingPoolTest is Test {
     address public LIQUIDATOR = makeAddr("liquidator");
     uint256 public constant INITIAL_DEPOSIT = 20 ether;
     uint256 public constant REWARD_PER_BLOCK = 1e18;
-    uint256 public constant ETH_PRICE = 2000e8;
-    uint256 public constant USDC_PRICE = 1e8;
+    uint256 public constant ETH_PRICE = 2000e18;
+    uint256 public constant USDT_PRICE = 1e18;
     uint256 public constant PRECISION = 1e18;
-    uint256 public constant ADDITIONAL_FEED_PRECISION = 1e10;
 
     function setUp() public {
         // 部署mock tokens
@@ -347,7 +346,7 @@ contract LendingPoolTest is Test {
 
         uint256 collateralValue = pool.getCollateralValue(USER);
         // Expected value: 1 ETH * $2000 * collateralFactor = $1500
-        assertEq(collateralValue, ((depositAmount * uint256(ETH_PRICE) * 3) * 1e10) / (4 * 1e18));
+        assertEq(collateralValue, ((depositAmount * uint256(ETH_PRICE) * 3)) / (4 * 1e18));
         vm.stopPrank();
     }
 
@@ -797,11 +796,11 @@ contract LendingPoolTest is Test {
 
         (uint256 totalDeposits, uint256 totalBorrows) = pool.getTotalValues();
 
-        uint256 expectedDeposits = (5 ether * ETH_PRICE * ADDITIONAL_FEED_PRECISION) /
+        uint256 expectedDeposits = (5 ether * ETH_PRICE) /
             PRECISION +
-            (10000e18 * USDC_PRICE * ADDITIONAL_FEED_PRECISION) /
+            (10000e18 * USDT_PRICE) /
             PRECISION;
-        uint256 expectedBorrows = (2 ether * ETH_PRICE * ADDITIONAL_FEED_PRECISION) / PRECISION;
+        uint256 expectedBorrows = (2 ether * ETH_PRICE) / PRECISION;
 
         assertEq(totalDeposits, expectedDeposits, "Total deposits mismatch");
         assertEq(totalBorrows, expectedBorrows, "Total borrows mismatch");

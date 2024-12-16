@@ -23,8 +23,8 @@ contract LendingPoolInvariantTest is StdInvariant, Test {
     address public ethUsdPriceFeed;
     address public usdcUsdPriceFeed;
 
-    int256 public constant ETH_PRICE = 2000e8;
-    int256 public constant USDC_PRICE = 1e8;
+    int256 public constant ETH_PRICE = 2000e18;
+    int256 public constant USDC_PRICE = 1e18;
     uint256 public constant INITIAL_DEPOSIT = 10 ether;
     uint256 public constant REWARD_PER_BLOCK = 1e18;
 

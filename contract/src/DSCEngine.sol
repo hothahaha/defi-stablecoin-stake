@@ -29,7 +29,6 @@ contract DSCEngine is ReentrancyGuard, Pausable, Ownable {
     uint256 private constant LIQUIDATION_PRECISION = 100;
     uint256 private constant MIN_HEALTH_FACTOR = 1e18;
     uint256 private constant PRECISION = 1e18;
-    uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
 
     // State variables
     mapping(address token => address priceFeed) private s_priceFeeds;
@@ -293,7 +292,7 @@ contract DSCEngine is ReentrancyGuard, Pausable, Ownable {
     function getUsdValue(address token, uint256 amount) public view returns (uint256) {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
         (, int256 price, , , ) = priceFeed.latestRoundData();
-        return ((uint256(price) * ADDITIONAL_FEED_PRECISION) * amount) / PRECISION;
+        return (uint256(price) * amount) / PRECISION;
     }
 
     /// @notice 获取抵押品价值
@@ -306,7 +305,7 @@ contract DSCEngine is ReentrancyGuard, Pausable, Ownable {
     ) public view returns (uint256) {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeeds[token]);
         (, int256 price, , , ) = priceFeed.latestRoundData();
-        return (usdAmountInWei * PRECISION) / (uint256(price) * ADDITIONAL_FEED_PRECISION); // API3 价格使用8位精度
+        return (usdAmountInWei * PRECISION) / uint256(price); // API3 价格使用8位精度
     }
 
     /// @notice 获取用户账户信息

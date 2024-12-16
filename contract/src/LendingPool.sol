@@ -43,7 +43,6 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
     // State variables
     // Constants
     uint256 private constant PRECISION = 1e18;
-    uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
 
     // Immutable state variables
     InsurancePool public immutable insurancePool; // 保险池合约
@@ -259,11 +258,8 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
 
         // 获取资产价格并计算可借款价值
         (, int256 price, , , ) = Api3ReaderProxyV1(s_priceFeeds[asset]).latestRoundData();
-        uint256 currentBorrowValueUSD = (user.borrowAmount *
-            uint256(price) *
-            ADDITIONAL_FEED_PRECISION) / PRECISION;
-        uint256 newBorrowValueUSD = (amount * uint256(price) * ADDITIONAL_FEED_PRECISION) /
-            PRECISION;
+        uint256 currentBorrowValueUSD = (user.borrowAmount * uint256(price)) / PRECISION;
+        uint256 newBorrowValueUSD = (amount * uint256(price)) / PRECISION;
         uint256 borrowLimitUSD = getUserBorrowLimitInUSD(msg.sender);
 
         // 检查总借款价值是否超过限额
@@ -492,9 +488,8 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
                 AssetManager.AssetConfig memory config = assetManager.getAssetConfig(asset);
                 Api3ReaderProxyV1 priceFeed = Api3ReaderProxyV1(s_priceFeeds[asset]);
                 (, int256 price, , , ) = priceFeed.latestRoundData();
-                uint256 assetValue = (uint256(curUserInfo.depositAmount) *
-                    uint256(price) *
-                    ADDITIONAL_FEED_PRECISION) / PRECISION;
+                uint256 assetValue = (uint256(curUserInfo.depositAmount) * uint256(price)) /
+                    PRECISION;
                 totalValue += (assetValue * config.collateralFactor) / PRECISION;
             }
         }
@@ -579,9 +574,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
     ) public view returns (uint256) {
         Api3ReaderProxyV1 priceFeed = Api3ReaderProxyV1(s_priceFeeds[asset]);
         (, int256 price, , , ) = priceFeed.latestRoundData();
-        uint256 assetValue = (
-            (uint256(borrowAmount) * uint256(price) * ADDITIONAL_FEED_PRECISION)
-        ) / PRECISION;
+        uint256 assetValue = ((uint256(borrowAmount) * uint256(price))) / PRECISION;
         return assetValue;
     }
 
@@ -606,7 +599,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
 
         uint256 availableValue = borrowLimit - borrowedValue;
 
-        return (availableValue * PRECISION) / (uint256(price) * ADDITIONAL_FEED_PRECISION);
+        return (availableValue * PRECISION) / uint256(price);
     }
 
     /// @notice 获取资产价值
@@ -618,8 +611,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
         uint256 value = 0;
         Api3ReaderProxyV1 priceFeed = Api3ReaderProxyV1(s_priceFeeds[asset]);
         (, int256 price, , , ) = priceFeed.latestRoundData();
-        uint256 assetValue = (uint256(amount) * uint256(price) * ADDITIONAL_FEED_PRECISION) /
-            PRECISION;
+        uint256 assetValue = (uint256(amount) * uint256(price)) / PRECISION;
         value += assetValue;
         return value;
     }
@@ -660,9 +652,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
                 Api3ReaderProxyV1 priceFeed = Api3ReaderProxyV1(s_priceFeeds[asset]);
                 (, int256 price, , , ) = priceFeed.latestRoundData();
 
-                uint256 depositValue = (depositAmount *
-                    uint256(price) *
-                    ADDITIONAL_FEED_PRECISION) / PRECISION;
+                uint256 depositValue = (depositAmount * uint256(price)) / PRECISION;
                 uint256 collateralValue = (depositValue * config.collateralFactor) / PRECISION;
 
                 uint256 borrowLimitValue = (collateralValue * config.borrowFactor) / PRECISION;
@@ -693,7 +683,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
         // 转换为资产数量
         uint256 maxWithdraw = (availableUSD * PRECISION) / config.collateralFactor;
         maxWithdraw = (maxWithdraw * PRECISION) / config.borrowFactor;
-        maxWithdraw = (maxWithdraw * PRECISION) / (uint256(price) * ADDITIONAL_FEED_PRECISION);
+        maxWithdraw = (maxWithdraw * PRECISION) / (uint256(price));
         return maxWithdraw;
     }
 

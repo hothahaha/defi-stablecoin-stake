@@ -25,8 +25,8 @@ contract DSCEngineTest is Test {
     uint256 public constant STARTING_USER_BALANCE = 100 ether;
     uint256 public constant MIN_HEALTH_FACTOR = 1e18;
     uint256 public constant LIQUIDATION_THRESHOLD = 50;
-    int256 public constant ETH_USD_PRICE = 2000e8;
-    int256 public constant USDC_USD_PRICE = 1e8;
+    int256 public constant ETH_USD_PRICE = 2000e18;
+    int256 public constant USDC_USD_PRICE = 1e18;
 
     function setUp() public {
         deployer = new DeployScript();
