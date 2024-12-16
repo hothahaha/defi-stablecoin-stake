@@ -10,18 +10,18 @@ interface UserAssetsInfo {
     borrows: UserAsset[];
     totalDepositValue: bigint;
     totalBorrowValue: bigint;
-    refetch: () => Promise<void>;
+    refetch: () => void;
 }
 
 export function useUserAssets(): UserAssetsInfo {
     const supportedAssets = useSupportedAssets();
-    const { address } = useAccount();
-    const assets = useAssets();
+    const { address, isConnected } = useAccount();
+    const { assets, refetch: refetchAssets } = useAssets();
     const [userAssets, setUserAssets] = useState<UserAsset[]>([]);
     const [totalValues, setTotalValues] = useState<[bigint, bigint]>([0n, 0n]);
 
     const fetchUserAssets = async () => {
-        if (!address) return;
+        if (!isConnected || !address) return;
         const signer = await getSigner();
         if (!signer) return;
 
@@ -61,13 +61,22 @@ export function useUserAssets(): UserAssetsInfo {
             setUserAssets(processedAssets);
             setTotalValues([totalDepositValue, totalBorrowValue]);
         } catch (error) {
-            console.error("Failed to fetch user assets:", error);
+            console.warn("Failed to fetch user assets:", error);
         }
     };
 
+    // 监听钱包连接状态和资产数据变化
     useEffect(() => {
-        fetchUserAssets();
-    }, [address, assets, supportedAssets]);
+        if (isConnected && assets.length > 0) {
+            fetchUserAssets();
+        }
+    }, [isConnected, assets, address]);
+
+    // 提供刷新方法
+    const refetch = async () => {
+        await refetchAssets();
+        await fetchUserAssets();
+    };
 
     const deposits = userAssets.filter((asset) => asset.depositAmount > 0n);
     const borrows = userAssets.filter((asset) => asset.borrowAmount > 0n);
@@ -77,6 +86,6 @@ export function useUserAssets(): UserAssetsInfo {
         borrows,
         totalDepositValue: totalValues[0],
         totalBorrowValue: totalValues[1],
-        refetch: fetchUserAssets,
+        refetch,
     };
 }

@@ -10,11 +10,7 @@ interface UserAssetStatsProps {
 }
 
 export function UserAssetStats({ refreshKey = 0 }: UserAssetStatsProps) {
-    const { totalDepositValue, totalBorrowValue, refetch } = useUserAssets();
-
-    useEffect(() => {
-        refetch();
-    }, [refreshKey, refetch]);
+    const { totalDepositValue, totalBorrowValue } = useUserAssets();
 
     return (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

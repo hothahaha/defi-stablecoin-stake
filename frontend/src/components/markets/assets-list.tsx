@@ -1,24 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { AssetCard } from "./asset-card";
 import { SupplyModal } from "./supply-modal";
 import { BorrowModal } from "./borrow-modal";
 import { useAssets } from "@/hooks/use-assets";
 import { Asset } from "@/types";
+import { useAccount } from "wagmi";
 
 interface AssetsListProps {
     onSuccess?: () => void;
 }
 
 export function AssetsList({ onSuccess }: AssetsListProps) {
+    const { isConnected } = useAccount();
+    const { assets, refetch } = useAssets();
     const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
     const [isSupplyModalOpen, setIsSupplyModalOpen] = useState(false);
     const [isBorrowModalOpen, setIsBorrowModalOpen] = useState(false);
     const [refreshKey, setRefreshKey] = useState(0);
-    const assets = useAssets();
 
-    const handleSuccess = () => {
+    useEffect(() => {
+        if (isConnected) {
+            refetch();
+        }
+    }, [isConnected, refetch]);
+
+    const handleSuccess = async () => {
+        await refetch();
         setRefreshKey((prev) => prev + 1);
         onSuccess?.();
     };
