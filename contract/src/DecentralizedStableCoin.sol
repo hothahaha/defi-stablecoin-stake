@@ -166,28 +166,28 @@ contract DecentralizedStableCoin is ERC20, Pausable, Ownable, ReentrancyGuard {
     /// @param from 发送方地址
     /// @param to 接收方地址
     /// @param amount 转账金额
-    function _update(
-        address from,
-        address to,
-        uint256 amount
-    ) internal virtual override whenNotPaused {
-        if (blacklisted[from] || blacklisted[to]) {
-            revert DecentralizedStableCoin__Blacklisted();
-        }
+    // function _update(
+    //     address from,
+    //     address to,
+    //     uint256 amount
+    // ) internal virtual override whenNotPaused {
+    //     if (blacklisted[from] || blacklisted[to]) {
+    //         revert DecentralizedStableCoin__Blacklisted();
+    //     }
 
-        // 检查每日限额（如果是铸币操作）
-        if (from == address(0)) {
-            uint256 currentDay = block.timestamp / DAILY_SECONDS;
-            DailyMint storage dailyMint = dailyMints[currentDay];
-            if (dailyMint.amount + amount > dailyMintLimit) {
-                revert DecentralizedStableCoin__ExceedsDailyLimit(
-                    amount,
-                    dailyMintLimit - dailyMint.amount
-                );
-            }
-            dailyMint.amount = uint128(dailyMint.amount + amount);
-        }
+    //     // 检查每日限额（如果是铸币操作）
+    //     if (from == address(0)) {
+    //         uint256 currentDay = block.timestamp / DAILY_SECONDS;
+    //         DailyMint storage dailyMint = dailyMints[currentDay];
+    //         if (dailyMint.amount + amount > dailyMintLimit) {
+    //             revert DecentralizedStableCoin__ExceedsDailyLimit(
+    //                 amount,
+    //                 dailyMintLimit - dailyMint.amount
+    //             );
+    //         }
+    //         dailyMint.amount = uint128(dailyMint.amount + amount);
+    //     }
 
-        super._update(from, to, amount);
-    }
+    //     super._update(from, to, amount);
+    // }
 }

@@ -67,9 +67,7 @@ export function WithdrawModal({
             const contract = getLendingPoolContract(signer);
             if (!contract) throw new Error("No contract");
 
-            const tx = await contract.withdraw(asset.token, parsedAmount, {
-                gasLimit: 500000n,
-            });
+            const tx = await contract.withdraw(asset.token, parsedAmount);
 
             await tx.wait();
             onSuccess?.();

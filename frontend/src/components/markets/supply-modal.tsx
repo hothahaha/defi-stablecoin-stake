@@ -105,7 +105,6 @@ export function SupplyModal({
             });
 
             const tx = await contract.deposit(asset.token, parsedAmount, {
-                gasLimit: 500000n,
                 value: 0n,
             });
 

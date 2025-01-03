@@ -191,30 +191,6 @@ export const LendingPoolABI = [
     },
     {
         type: "function",
-        name: "getSupportedAssets",
-        inputs: [],
-        outputs: [
-            {
-                name: "",
-                type: "tuple[]",
-                internalType: "struct LendingPool.AssetInfo[]",
-                components: [
-                    { name: "totalDeposits", type: "uint256", internalType: "uint256" },
-                    { name: "totalBorrows", type: "uint256", internalType: "uint256" },
-                    { name: "lastUpdateTime", type: "uint256", internalType: "uint256" },
-                    { name: "currentRate", type: "uint256", internalType: "uint256" },
-                    { name: "borrowRate", type: "uint256", internalType: "uint256" },
-                    { name: "depositRate", type: "uint256", internalType: "uint256" },
-                    { name: "reserveFactor", type: "uint256", internalType: "uint256" },
-                    { name: "borrowIndex", type: "uint256", internalType: "uint256" },
-                    { name: "depositIndex", type: "uint256", internalType: "uint256" },
-                ],
-            },
-        ],
-        stateMutability: "view",
-    },
-    {
-        type: "function",
         name: "getTotalValues",
         inputs: [],
         outputs: [
@@ -586,13 +562,6 @@ export const AssetManagerABI = [
     },
     {
         type: "function",
-        name: "adders",
-        inputs: [{ name: "", type: "address", internalType: "address" }],
-        outputs: [{ name: "", type: "bool", internalType: "bool" }],
-        stateMutability: "view",
-    },
-    {
-        type: "function",
         name: "getAssetConfig",
         inputs: [{ name: "asset", type: "address", internalType: "address" }],
         outputs: [
@@ -625,6 +594,13 @@ export const AssetManagerABI = [
         name: "getSupportedAssets",
         inputs: [],
         outputs: [{ name: "", type: "address[]", internalType: "address[]" }],
+        stateMutability: "view",
+    },
+    {
+        type: "function",
+        name: "granters",
+        inputs: [{ name: "", type: "address", internalType: "address" }],
+        outputs: [{ name: "", type: "bool", internalType: "bool" }],
         stateMutability: "view",
     },
     {
@@ -673,7 +649,7 @@ export const AssetManagerABI = [
         type: "function",
         name: "updateAddRole",
         inputs: [
-            { name: "adder", type: "address", internalType: "address" },
+            { name: "granter", type: "address", internalType: "address" },
             { name: "status", type: "bool", internalType: "bool" },
         ],
         outputs: [],
@@ -706,7 +682,7 @@ export const AssetManagerABI = [
         type: "event",
         name: "AdderStatusChanged",
         inputs: [
-            { name: "adder", type: "address", indexed: true, internalType: "address" },
+            { name: "granter", type: "address", indexed: true, internalType: "address" },
             { name: "status", type: "bool", indexed: false, internalType: "bool" },
         ],
         anonymous: false,
@@ -783,11 +759,6 @@ export const AssetManagerABI = [
     },
     { type: "error", name: "AssetManager__AssetAlreadySupported", inputs: [] },
     { type: "error", name: "AssetManager__AssetNotSupported", inputs: [] },
-    {
-        type: "error",
-        name: "AssetManager__InvalidAdder",
-        inputs: [{ name: "adder", type: "address", internalType: "address" }],
-    },
     { type: "error", name: "AssetManager__InvalidAmount", inputs: [] },
     { type: "error", name: "AssetManager__InvalidAsset", inputs: [] },
     { type: "error", name: "AssetManager__InvalidCaller", inputs: [] },

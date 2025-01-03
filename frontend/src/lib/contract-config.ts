@@ -1,8 +1,8 @@
 import { LendingPoolABI, AssetManagerABI, StablecoinABI } from "./contract-abi";
 import { Chain } from "@rainbow-me/rainbowkit";
 
-export const LENDING_POOL_ADDRESS = "0x2d81978FEe30aBCbda4166E8255b56d31989A619"; // Fill in actual address after deployment
-export const ASSET_MANAGER_ADDRESS = "0x6eF0548Da48bf2Bf55aE69Fd05Ee8e842cf0AEEb";
+export const LENDING_POOL_ADDRESS = "0x3e07ab355cFe7810097E416225670722610E2430"; // Fill in actual address after deployment
+export const ASSET_MANAGER_ADDRESS = "0x2E54882bda6aeB74999Bd268044fde1E761Fb534";
 export const STABLECOIN_ADDRESS = "0x...";
 export const COLLATERAL_TOKEN_ADDRESS = "0x...";
 

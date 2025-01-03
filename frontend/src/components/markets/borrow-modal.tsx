@@ -66,9 +66,7 @@ export function BorrowModal({
             const contract = getLendingPoolContract(signer);
             if (!contract) throw new Error("No lending pool contract");
 
-            const tx = await contract.borrow(asset.token, parsedAmount, {
-                gasLimit: 500000n,
-            });
+            const tx = await contract.borrow(asset.token, parsedAmount);
 
             await tx.wait();
             onSuccess?.();

@@ -31,7 +31,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
     struct AssetInfo {
         uint256 totalDeposits; // 总存款
         uint256 totalBorrows; // 总借款
-        uint256 lastUpdateTime; // 最后更新时间
+        uint64 lastUpdateTime; // 最后更新时间
         uint256 currentRate; // 当前利率
         uint256 borrowRate; // 借款利率
         uint256 depositRate; // 存款利率
@@ -84,7 +84,6 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
     error LendingPool__InsufficientCollateral();
     error LendingPool__NotLiquidatable();
     error LendingPool__WithdrawalExceedsThreshold();
-    error LendingPool__AssetNotSupported();
     error LendingPool__ExceedsMaxBorrowFactor();
     error LendingPool__InvalidCollateralFactor();
     error LendingPool__ExceedsAvailableLiquidity(uint256 requested, uint256 available);
@@ -128,7 +127,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
             assetInfo[tokenAddresses[i]] = AssetInfo({
                 totalDeposits: 0,
                 totalBorrows: 0,
-                lastUpdateTime: block.timestamp,
+                lastUpdateTime: uint64(block.timestamp),
                 currentRate: InterestRateModel.calculateInterestRate(0, 0),
                 borrowRate: 0,
                 depositRate: 0,
@@ -149,23 +148,11 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
         _unpause();
     }
 
-    /// @notice 存款前检查
-    /// @param asset 资产地址
-    modifier onlySupportedAsset(address asset) {
-        if (!assetManager.isAssetSupported(asset)) {
-            revert LendingPool__AssetNotSupported();
-        }
-        _;
-    }
-
     /// @notice 存款
     /// @param asset 资产地址
     /// @param amount 存款金额
     /// @dev
-    function deposit(
-        address asset,
-        uint256 amount
-    ) external nonReentrant whenNotPaused onlySupportedAsset(asset) {
+    function deposit(address asset, uint256 amount) external nonReentrant whenNotPaused {
         if (amount == 0) {
             revert LendingPool__InvalidAmount();
         }
@@ -231,10 +218,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
     /// @param asset 资产地址
     /// @param amount 借款金额
     /// @dev 借款前需要先存款
-    function borrow(
-        address asset,
-        uint256 amount
-    ) external nonReentrant whenNotPaused onlySupportedAsset(asset) {
+    function borrow(address asset, uint256 amount) external nonReentrant whenNotPaused {
         if (amount == 0) {
             revert LendingPool__InvalidAmount();
         }
@@ -424,7 +408,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
         }
 
         lastRewardBlock = block.number;
-        assetData.lastUpdateTime = block.timestamp;
+        assetData.lastUpdateTime = uint64(block.timestamp);
 
         emit AssetInfoUpdated(asset, assetData.currentRate, accRewardPerShare[asset]);
     }
@@ -527,7 +511,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
         assetInfo[token] = AssetInfo({
             totalDeposits: 0,
             totalBorrows: 0,
-            lastUpdateTime: block.timestamp,
+            lastUpdateTime: uint64(block.timestamp),
             currentRate: InterestRateModel.calculateInterestRate(0, 0),
             borrowRate: 0,
             depositRate: 0,
@@ -582,10 +566,7 @@ contract LendingPool is Ownable, ReentrancyGuard, Pausable {
     /// @param user 用户地址
     /// @param asset 资产地址
     /// @dev 借款数量 = (抵押品价值 - 已借款价值) * 借款因子 / （价格 * 1e18）
-    function getUserBorrowLimit(
-        address user,
-        address asset
-    ) public view onlySupportedAsset(asset) returns (uint256) {
+    function getUserBorrowLimit(address user, address asset) public view returns (uint256) {
         // 获取最大借款限额
         uint256 borrowLimit = getUserBorrowLimitInUSD(user);
 

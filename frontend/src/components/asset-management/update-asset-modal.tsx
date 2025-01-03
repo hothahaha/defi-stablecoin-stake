@@ -47,28 +47,44 @@ export function UpdateAssetModal({ isOpen, onClose, asset, onSuccess }: UpdateAs
 
             // Merge existing config with new changes
             const updatedConfig = {
-                name: asset.config.name,
-                symbol: asset.config.symbol,
-                decimals: asset.config.decimals,
-                icon: asset.config.icon,
-                isSupported: asset.config.isSupported,
+                isSupported: true,
                 collateralFactor: parseUnits(
                     (Number(formData.collateralFactor) / 100).toString(),
                     18
                 ),
-                borrowFactor: parseUnits((Number(formData.borrowFactor) / 100).toString(), 18),
+                borrowFactor: parseUnits(
+                    (Number(formData.borrowFactor) / 100).toString(),
+                    18
+                ),
+                symbol: asset.config.symbol,
+                name: asset.config.name,
+                decimals: asset.config.decimals,
+                icon: asset.config.icon,
             };
 
-            const tx = await contract.updateAsset(asset.token, updatedConfig, {
-                gasLimit: 500000n,
+            console.log("Updating asset with config:", {
+                token: asset.token,
+                config: updatedConfig,
             });
 
+            const tx = await contract.updateAsset(asset.token, updatedConfig);
+
+            console.log("Transaction sent:", tx.hash);
             await tx.wait();
+            console.log("Transaction confirmed");
+
             await refetch();
             onSuccess?.();
             onClose();
         } catch (error) {
             console.error("Update asset failed:", error);
+            // 添加更详细的错误信息
+            if (error.data) {
+                console.error("Error data:", error.data);
+            }
+            if (error.transaction) {
+                console.error("Transaction:", error.transaction);
+            }
             alert(error.message || "Failed to update asset");
         } finally {
             setIsWaitingTx(false);
@@ -76,13 +92,19 @@ export function UpdateAssetModal({ isOpen, onClose, asset, onSuccess }: UpdateAs
     };
 
     return (
-        <Dialog open={isOpen} onOpenChange={onClose}>
+        <Dialog
+            open={isOpen}
+            onOpenChange={onClose}
+        >
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>Update Asset - {asset.config.symbol}</DialogTitle>
                 </DialogHeader>
 
-                <form onSubmit={handleSubmit} className="space-y-4">
+                <form
+                    onSubmit={handleSubmit}
+                    className="space-y-4"
+                >
                     <div>
                         <Label>Collateral Factor (0-100)</Label>
                         <Input

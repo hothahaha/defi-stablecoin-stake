@@ -106,17 +106,15 @@ library InterestRateModel {
         // 1. 计算超额利用率（以20%为基数）
         // 例如：85%利用率时，超额部分为 5%
         uint256 excessUtilization = utilization - OPTIMAL_UTILIZATION; // 0.05e18
-
         // 2. 计算在超额区间的位置（0-20%映射到0-100%）
         // 超额区间总长度为 20%（100% - 80%）
         uint256 remainingUtilization = PRECISION - OPTIMAL_UTILIZATION; // 0.2e18
-
         // 3. 计算超额利率
         // EXCESS_SPREAD = 92%（100% - 8%）
         // 在85%利用率时：(0.05e18 * 0.92e18) / 0.2e18 = 0.23e18
         // 最终利率：8% + 22% = 30%
         uint256 additionalRate = (excessUtilization * EXCESS_SPREAD) / remainingUtilization;
-
+        // 最终利率：8% + 22% = 30%
         return OPTIMAL_RATE + additionalRate;
     }
 }

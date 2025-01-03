@@ -54,23 +54,18 @@ export function AddAssetModal({ isOpen, onClose, onSuccess }: AddAssetModalProps
             const contract = getLendingPoolContract(signer);
             if (!contract) throw new Error("No contract");
 
-            const tx = await contract.addAsset(
-                formData.token,
-                formData.priceFeed,
-                {
-                    isSupported: true,
-                    name: formData.name,
-                    symbol: formData.symbol,
-                    decimals: parseInt(formData.decimals),
-                    icon: formData.icon,
-                    collateralFactor: parseUnits(
-                        (Number(formData.collateralFactor) / 100).toString(),
-                        18
-                    ),
-                    borrowFactor: parseUnits((Number(formData.borrowFactor) / 100).toString(), 18),
-                },
-                { gasLimit: 500000n }
-            );
+            const tx = await contract.addAsset(formData.token, formData.priceFeed, {
+                isSupported: true,
+                name: formData.name,
+                symbol: formData.symbol,
+                decimals: parseInt(formData.decimals),
+                icon: formData.icon,
+                collateralFactor: parseUnits(
+                    (Number(formData.collateralFactor) / 100).toString(),
+                    18
+                ),
+                borrowFactor: parseUnits((Number(formData.borrowFactor) / 100).toString(), 18),
+            });
 
             await tx.wait();
             onSuccess?.();
@@ -84,13 +79,19 @@ export function AddAssetModal({ isOpen, onClose, onSuccess }: AddAssetModalProps
     };
 
     return (
-        <Dialog open={isOpen} onOpenChange={onClose}>
+        <Dialog
+            open={isOpen}
+            onOpenChange={onClose}
+        >
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>Add New Asset</DialogTitle>
                 </DialogHeader>
 
-                <form onSubmit={handleSubmit} className="space-y-4">
+                <form
+                    onSubmit={handleSubmit}
+                    className="space-y-4"
+                >
                     <div>
                         <Label>Token Address</Label>
                         <Input

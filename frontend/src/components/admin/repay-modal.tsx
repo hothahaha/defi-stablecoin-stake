@@ -45,9 +45,7 @@ export function RepayModal({
             const contract = getLendingPoolContract(signer);
             if (!contract) throw new Error("No contract");
 
-            const tx = await contract.repay(asset.token, parsedAmount, {
-                gasLimit: 500000n,
-            });
+            const tx = await contract.repay(asset.token, parsedAmount);
 
             await tx.wait();
             onSuccess?.();

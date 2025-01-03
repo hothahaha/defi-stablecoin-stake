@@ -561,11 +561,6 @@ contract LendingPoolTest is Test {
         vm.expectRevert(LendingPool.LendingPool__InvalidAmount.selector);
         pool.deposit(address(weth), 0);
 
-        // 测试未授权资产
-        MockERC20 invalidToken = new MockERC20("Invalid", "INV");
-        vm.expectRevert(LendingPool.LendingPool__AssetNotSupported.selector);
-        pool.deposit(address(invalidToken), 1 ether);
-
         // 测试超额提款
         pool.deposit(address(weth), 1 ether);
         vm.expectRevert(LendingPool.LendingPool__InsufficientBalance.selector);
